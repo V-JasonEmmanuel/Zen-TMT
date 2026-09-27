@@ -12,5 +12,5 @@ if not "%RC%"=="0" (
   pause
   exit /b %RC%
 )
-timeout /t 8 >nul
+ping -n 6 127.0.0.1 >nul
 endlocal
