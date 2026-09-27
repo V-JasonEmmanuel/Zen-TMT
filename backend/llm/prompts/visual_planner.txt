@@ -1,0 +1,11 @@
+# version: 1
+# purpose: extract a component/flow graph for an architecture or workflow diagram
+From the SOURCE passages, extract the {{kind}} described, as a small diagram.
+
+SOURCE PASSAGES:
+{{sources}}
+
+Return:
+- nodes: 3 to 8 components/stages that are explicitly named in the sources. id = short snake_case, label = at most 4 words, group = optional layer/category name taken from the sources ("" if none).
+- edges: connections or data flow between nodes that the sources state or clearly describe (source -> target, optional short label).
+Do not invent components that are not in the sources. If the sources do not describe a {{kind}}, return empty lists.

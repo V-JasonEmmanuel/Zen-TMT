@@ -1,0 +1,10 @@
+{
+  "strategy": "auto",
+  "providers": [
+    "local",
+    "brand_assets"
+  ],
+  "default_treatment": "none",
+  "min_width_px": 1200,
+  "configured": true
+}

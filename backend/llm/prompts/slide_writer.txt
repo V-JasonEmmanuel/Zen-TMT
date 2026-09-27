@@ -1,0 +1,22 @@
+# version: 2
+# purpose: write the content of ONE slide from a small set of source passages
+Write the content for slide {{slide_number}} of a {{slide_count}}-slide presentation.
+
+PRESENTATION: "{{deck_title}}"
+AUDIENCE: {{audience}}   TONE: {{tone}}   DETAIL: {{detail_level}}
+USER INSTRUCTION: """{{instruction}}"""
+SLIDE FOCUS: {{topic}}
+SLIDE LAYOUT: {{layout}}
+{{layout_guidance}}
+
+SOURCE PASSAGES (the only facts you may use):
+{{sources}}
+
+Requirements:
+- title: a strong, specific slide title of at most 8 words, grounded in the sources.
+- Each point/step/KPI must be supported by the passages and list the ids it came from in "sources" (e.g. ["S1","S3"]).
+- Points: at most {{max_words}} words each, one idea per point, no sub-bullets.
+- Copy all numbers exactly as they appear in the sources.
+- Do not include anything the user asked to exclude: {{exclude}}.
+- narration: 2-4 spoken sentences a presenter would say for this slide, using only the same facts. No "in this slide".
+- Leave fields that the layout does not use as empty lists / null.

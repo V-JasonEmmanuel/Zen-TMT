@@ -1,0 +1,35 @@
+# Local data - confidential documents and generated outputs never belong in git
+.env
+data/
+outputs/
+projects/
+media/
+logs/
+.pytest_data/
+
+# Models are downloaded by start.bat (scripts/fetch_models.py)
+models/embeddings/
+models/tts/
+
+# Licensed brand fonts are installed per machine, never committed
+brands/*/assets/fonts/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Generated test fixtures (tests create their own)
+tests/fixtures/sample_research.pdf
+tests/fixtures/sample_research.docx
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
+*.tsbuildinfo

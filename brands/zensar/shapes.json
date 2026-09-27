@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "motifs": [
+    "square",
+    "triangle",
+    "quarter_circle",
+    "circle",
+    "diamond",
+    "line"
+  ],
+  "density": "subtle",
+  "cover_composition": "grid_cluster",
+  "color_roles": [
+    "secondary",
+    "primary",
+    "surface_alt",
+    "accent"
+  ],
+  "line_role": "secondary",
+  "section_tag": true,
+  "notes": ""
+}

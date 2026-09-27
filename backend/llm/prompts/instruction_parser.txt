@@ -1,0 +1,20 @@
+# version: 1
+# purpose: convert a natural-language instruction into a structured content contract
+Convert the user's instruction for a presentation into structured fields.
+
+USER INSTRUCTION:
+"""{{instruction}}"""
+
+Document sections detected (for reference only): {{sections}}
+
+Fill these fields:
+- audience: one of senior_client, executive, technical, general_business, academic, internal_team, sales, students
+- purpose: short snake_case phrase, e.g. technical_presentation, executive_briefing, research_summary, client_proposal, training
+- slide_count: the number of slides requested, or null if not stated
+- tone: e.g. professional, formal, persuasive, academic, conversational
+- include: topics the user wants covered, as short snake_case words (e.g. architecture, methodology, results, benefits, recommendations)
+- exclude: topics the user does not want (e.g. implementation_code, math, references)
+- detail_level: low, medium or high
+- notes: any other explicit constraint from the instruction in one short sentence, or ""
+
+Only record what the instruction actually says or clearly implies. Do not invent requirements.

@@ -1,0 +1,11 @@
+# version: 1
+# purpose: rewrite narration for an edited slide (used when a user edits slide text)
+Write the narration a presenter would speak for this slide, in 2-4 sentences.
+Audience: {{audience}}. Tone: {{tone}}.
+
+SLIDE TITLE: {{title}}
+SLIDE CONTENT (already verified; use only these facts):
+{{content}}
+
+Do not add facts, numbers or claims that are not in the slide content. Do not say "this slide".
+Return JSON: {"narration": "..."}

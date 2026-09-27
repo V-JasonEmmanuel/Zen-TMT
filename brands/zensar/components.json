@@ -1,0 +1,24 @@
+{
+  "card_fill_role": "surface",
+  "card_border_role": null,
+  "card_radius_in": null,
+  "card_border_pt": null,
+  "accent_bar": false,
+  "accent_bar_role": null,
+  "bullet_style": null,
+  "bullet_color_role": "secondary",
+  "shape_style": "square",
+  "chart_palette_roles": [
+    "primary",
+    "secondary",
+    "accent",
+    "accent_2"
+  ],
+  "chart_gridlines": null,
+  "chart_data_labels": null,
+  "table_header_fill_role": "primary",
+  "table_header_text_role": null,
+  "table_band_fill_role": null,
+  "table_border_role": null,
+  "image_radius_in": null
+}

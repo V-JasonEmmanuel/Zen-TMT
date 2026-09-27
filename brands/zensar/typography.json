@@ -1,0 +1,30 @@
+{
+  "heading": {
+    "family": "Graphik",
+    "bold": false,
+    "color_role": null,
+    "weight": null
+  },
+  "body": {
+    "family": "Graphik",
+    "bold": null,
+    "color_role": null,
+    "weight": null
+  },
+  "caption": {
+    "family": "Graphik",
+    "bold": null,
+    "color_role": null,
+    "weight": null
+  },
+  "kpi": {
+    "family": "Graphik",
+    "bold": null,
+    "color_role": null,
+    "weight": null
+  },
+  "subtitle_color_role": "secondary",
+  "fallback_family": "Arial",
+  "line_height": null,
+  "sizes": {}
+}

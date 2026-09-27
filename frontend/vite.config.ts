@@ -1,0 +1,20 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+// All assets are bundled locally - the UI never loads anything from the internet.
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    port: 3000,
+    strictPort: true,
+    host: "127.0.0.1",
+    proxy: {
+      "/api": { target: "http://127.0.0.1:8000", changeOrigin: false },
+    },
+  },
+  preview: {
+    port: 3000,
+    proxy: { "/api": { target: "http://127.0.0.1:8000" } },
+  },
+});

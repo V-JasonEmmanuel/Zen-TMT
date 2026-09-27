@@ -1,0 +1,306 @@
+{
+  "id": "zensar",
+  "name": "Zensar",
+  "description": "Zensar brand profile derived from official Zensar sources (website assets, FY25 Integrated Annual Report, brand announcement). Confirm or correct values against internal brand guidelines; user-supplied Zensar assets override these.",
+  "version": 1,
+  "logo": {
+    "file": "logo/zensar_logo_dark.png",
+    "file_on_dark": "logo/zensar_logo_white.png",
+    "file_mono": null,
+    "position": "top_left",
+    "width_in": 1.25,
+    "min_width_in": 0.8,
+    "clear_space_ratio": null,
+    "show_on": "all",
+    "sources": {}
+  },
+  "footer": {
+    "text": "",
+    "show_page_numbers": true,
+    "show_sources": true
+  },
+  "template": {
+    "file": null,
+    "use_as_base": true,
+    "blank_layout": null
+  },
+  "references": [
+    "ar25_cover.png",
+    "ar25_about.png",
+    "ar25_kpi_panel.png",
+    "ar25_offerings.png"
+  ],
+  "reference_meta": {
+    "ar25_cover.png": {
+      "filename": "ar25_cover.png",
+      "type": "image",
+      "source": "official_annual_report",
+      "source_url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf",
+      "date_added": "2026-09-27T18:03:10+00:00",
+      "description": "FY25 Integrated Annual Report cover - wordmark, geometry, image masks",
+      "design_role": "branding",
+      "active": true
+    },
+    "ar25_about.png": {
+      "filename": "ar25_about.png",
+      "type": "image",
+      "source": "official_annual_report",
+      "source_url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf",
+      "date_added": "2026-09-27T18:03:10+00:00",
+      "description": "Report interior page - title hierarchy, corner shapes, section tag",
+      "design_role": "layout",
+      "active": true
+    },
+    "ar25_kpi_panel.png": {
+      "filename": "ar25_kpi_panel.png",
+      "type": "image",
+      "source": "official_annual_report",
+      "source_url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf",
+      "date_added": "2026-09-27T18:03:10+00:00",
+      "description": "Full-bleed indigo KPI panel with large numerals",
+      "design_role": "slide",
+      "active": true
+    },
+    "ar25_offerings.png": {
+      "filename": "ar25_offerings.png",
+      "type": "image",
+      "source": "official_annual_report",
+      "source_url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf",
+      "date_added": "2026-09-27T18:03:10+00:00",
+      "description": "Multi-column content page with tint panels",
+      "design_role": "layout",
+      "active": true
+    }
+  },
+  "provenance": {
+    "colors.secondary": {
+      "source": "official_annual_report",
+      "confidence": 0.8,
+      "note": "Dominant saturated colour in the FY25 annual report (subheads, cover geometry).",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.accent": {
+      "source": "official_annual_report",
+      "confidence": 0.65,
+      "note": "Coral-red used for markers and highlights in the FY25 annual report.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.accent_2": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Teal used for text highlights in the FY25 annual report.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.background": {
+      "source": "official_annual_report",
+      "confidence": 0.9,
+      "note": "White page background of the annual report and website content sections.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.surface": {
+      "source": "official_website",
+      "confidence": 0.5,
+      "note": "Light grey used for panels on zensar.com.",
+      "url": "https://www.zensar.com/"
+    },
+    "colors.surface_alt": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Light blue tint used for panels in the annual report.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.text_primary": {
+      "source": "official_website",
+      "confidence": 0.6,
+      "note": "Near-black text colour ('enterprise-gray') on zensar.com; the report uses black.",
+      "url": "https://www.zensar.com/"
+    },
+    "colors.text_secondary": {
+      "source": "official_annual_report",
+      "confidence": 0.55,
+      "note": "Grey secondary text in the annual report.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.border": {
+      "source": "official_website",
+      "confidence": 0.5,
+      "note": "Light rule colour on zensar.com.",
+      "url": "https://www.zensar.com/"
+    },
+    "colors.tints": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Light tint family of the annual report (panels, shapes).",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.palette": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Chart series order built from the measured brand colours.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "typography.heading.family": {
+      "source": "official_website",
+      "confidence": 0.95,
+      "note": "Typeface of zensar.com (all weights) and the FY25 annual report.",
+      "url": "https://www.zensar.com/"
+    },
+    "typography.body.family": {
+      "source": "official_annual_report",
+      "confidence": 0.95,
+      "note": "Body typeface of the annual report and website.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "typography.caption.family": {
+      "source": "official_annual_report",
+      "confidence": 0.9,
+      "note": "",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "typography.kpi.family": {
+      "source": "official_annual_report",
+      "confidence": 0.85,
+      "note": "KPI numerals in the annual report use Graphik.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "typography.heading.bold": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Large headings are set in a regular weight in the report.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "typography.subtitle_color_role": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Sub-headings are set in the brand blue.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "typography.fallback_family": {
+      "source": "default",
+      "confidence": 1.0,
+      "note": "Graphik is a licensed commercial typeface; when it is not installed, Arial is used consistently in every output.",
+      "url": ""
+    },
+    "logo.file_on_dark": {
+      "source": "official_website",
+      "confidence": 1.0,
+      "note": "Official white wordmark from zensar.com.",
+      "url": "https://images.ctfassets.net/bjl3f17nyta4/6IUeLrHvOQVPUxczuwnpG6/0b21114df102b72adf6e79d941c05e3b/zensar-logo-white.svg"
+    },
+    "logo.file": {
+      "source": "official_annual_report",
+      "confidence": 0.85,
+      "note": "Official wordmark vector in the colour Zensar prints it on white (#000000, FY25 report cover).",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "logo.position": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Interior report pages place the wordmark top-left.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "logo.width_in": {
+      "source": "default",
+      "confidence": 0.8,
+      "note": "",
+      "url": ""
+    },
+    "logo.min_width_in": {
+      "source": "default",
+      "confidence": 0.8,
+      "note": "Conservative minimum size until official clear-space rules are supplied.",
+      "url": ""
+    },
+    "shapes.enabled": {
+      "source": "official_press",
+      "confidence": 0.9,
+      "note": "'The Z motif on the logo is a combination of the three fundamental shapes of circle, square and a triangle.'",
+      "url": "https://www.zensar.com/newsroom/news/zensar-reveals-new-brand-identity"
+    },
+    "shapes.motifs": {
+      "source": "official_press",
+      "confidence": 0.8,
+      "note": "Circle/square/triangle primitives; the report cover also uses rotated squares and diagonal lines.",
+      "url": "https://www.zensar.com/newsroom/news/zensar-reveals-new-brand-identity"
+    },
+    "shapes.color_roles": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "shapes.line_role": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Thin diagonal rules on the report cover.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "shapes.section_tag": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "Small coloured marker + section name at the top-right of report pages.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "shapes.cover_composition": {
+      "source": "official_press",
+      "confidence": 0.6,
+      "note": "'The grid system is composed of multiple components that harmonise and work together to create dynamic visuals.'",
+      "url": "https://www.zensar.com/newsroom/news/zensar-reveals-new-brand-identity"
+    },
+    "components.accent_bar": {
+      "source": "official_annual_report",
+      "confidence": 0.5,
+      "note": "Report titles are not underlined; hierarchy comes from size, colour and shapes.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "components.shape_style": {
+      "source": "official_annual_report",
+      "confidence": 0.5,
+      "note": "Panels and image masks use square corners.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "components.card_fill_role": {
+      "source": "default",
+      "confidence": 0.6,
+      "note": "",
+      "url": ""
+    },
+    "components.bullet_color_role": {
+      "source": "official_annual_report",
+      "confidence": 0.5,
+      "note": "",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "components.table_header_fill_role": {
+      "source": "official_annual_report",
+      "confidence": 0.5,
+      "note": "",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "components.chart_palette_roles": {
+      "source": "official_annual_report",
+      "confidence": 0.6,
+      "note": "",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "layout.cover_style": {
+      "source": "official_annual_report",
+      "confidence": 0.7,
+      "note": "White cover with the wordmark and geometric imagery.",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "layout.title_align": {
+      "source": "official_annual_report",
+      "confidence": 0.8,
+      "note": "",
+      "url": "https://www.zensar.com/assets/files/6L0csuOAZclcJLWeB58eId/integrated-annual-report-fy25.pdf"
+    },
+    "colors.primary": {
+      "source": "official_website",
+      "confidence": 0.85,
+      "note": "The single colour used by every official service icon on zensar.com; brand text/buttons render in the same deep indigo. Print equivalent in the annual report: #211B5A.",
+      "url": "https://www.zensar.com/"
+    }
+  },
+  "updated_at": "2026-09-27T18:03:10+00:00"
+}

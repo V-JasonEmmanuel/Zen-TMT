@@ -1,0 +1,9 @@
+{
+  "transition": "zensar_grid",
+  "motion": "subtle",
+  "intro": true,
+  "outro": true,
+  "build_animations": true,
+  "chart_animation": true,
+  "configured": true
+}

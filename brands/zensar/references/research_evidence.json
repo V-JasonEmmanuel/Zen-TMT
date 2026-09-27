@@ -1,0 +1,162 @@
+{
+  "site": {
+    "icon_count": 15,
+    "icon_colours": [
+      [
+        "#10005D",
+        27
+      ],
+      [
+        "#FEFEFF",
+        6
+      ]
+    ],
+    "css_fonts": [
+      [
+        "var",
+        6
+      ],
+      [
+        "Graphik",
+        4
+      ],
+      [
+        "Helvetica Neue",
+        1
+      ],
+      [
+        "monospace",
+        1
+      ],
+      [
+        "inherit",
+        1
+      ]
+    ]
+  },
+  "annual_report": {
+    "pages": 195,
+    "saturated_fills": [
+      [
+        "#D3E1F4",
+        3457
+      ],
+      [
+        "#3A57A7",
+        2559
+      ],
+      [
+        "#CFEBE8",
+        2293
+      ],
+      [
+        "#D5DFEC",
+        2158
+      ],
+      [
+        "#211B5A",
+        2075
+      ],
+      [
+        "#EDDBAA",
+        2030
+      ],
+      [
+        "#F4E6C6",
+        1601
+      ],
+      [
+        "#EFE3D7",
+        1593
+      ],
+      [
+        "#F1CFD5",
+        1535
+      ],
+      [
+        "#C1CEE2",
+        1201
+      ]
+    ],
+    "text_colours": [
+      [
+        "#000000",
+        958318
+      ],
+      [
+        "#3A57A7",
+        41051
+      ],
+      [
+        "#00B0C0",
+        23294
+      ],
+      [
+        "#414042",
+        17136
+      ],
+      [
+        "#FFFFFF",
+        10564
+      ],
+      [
+        "#6D6E71",
+        1019
+      ],
+      [
+        "#F04E45",
+        706
+      ],
+      [
+        "#211B5A",
+        321
+      ],
+      [
+        "#215E9E",
+        109
+      ],
+      [
+        "#EAACB8",
+        60
+      ],
+      [
+        "#77787B",
+        54
+      ],
+      [
+        "#86C7C2",
+        51
+      ]
+    ],
+    "fonts": [
+      [
+        "Graphik",
+        1051558
+      ],
+      [
+        "GraphikTrial",
+        656
+      ],
+      [
+        "Rupee",
+        271
+      ],
+      [
+        "Roboto",
+        242
+      ],
+      [
+        "ArialMT",
+        46
+      ]
+    ],
+    "cover_wordmark_fill": "#000101",
+    "reference_pages": [
+      "ar25_cover.png",
+      "ar25_about.png",
+      "ar25_kpi_panel.png",
+      "ar25_offerings.png"
+    ]
+  },
+  "press": "https://www.zensar.com/newsroom/news/zensar-reveals-new-brand-identity"
+}
