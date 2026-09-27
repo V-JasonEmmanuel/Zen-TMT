@@ -1,15 +1,15 @@
 # Local data - confidential documents and generated outputs never belong in git
 .env
-data/
-outputs/
-projects/
-media/
-logs/
-.pytest_data/
+/data/
+/outputs/
+/projects/
+/media/
+/logs/
+/.pytest_data/
 
 # Models are downloaded by start.bat (scripts/fetch_models.py)
-models/embeddings/
-models/tts/
+/models/embeddings/
+/models/tts/
 
 # Licensed brand fonts are installed per machine, never committed
 brands/*/assets/fonts/

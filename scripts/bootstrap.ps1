@@ -7,8 +7,12 @@
 #     ZCS_NO_BROWSER=1     do not open the browser
 #     ZCS_PORT=8000        port for the local server
 
-$ErrorActionPreference = "Stop"
+# Native tools (pip/npm/ollama) write progress to stderr; in Windows PowerShell 5.1 that must not
+# abort the script, so every step checks $LASTEXITCODE explicitly instead.
+$ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
+$env:PYTHONUTF8 = "1"            # log files and redirected output are always UTF-8
+$env:PYTHONIOENCODING = "utf-8"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $Port = if ($env:ZCS_PORT) { [int]$env:ZCS_PORT } else { 8000 }
@@ -44,6 +48,16 @@ function File-Hash($paths) {
         }
     }
     return [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($sb.ToString()))).Replace("-", "")
+}
+function Run-Logged($exe, [string]$arguments, $log) {
+    # Separate stdout/stderr files: stderr never becomes a PowerShell error and arguments pass verbatim
+    $out = [IO.Path]::GetTempFileName(); $err = [IO.Path]::GetTempFileName()
+    $p = Start-Process -FilePath $exe -ArgumentList $arguments -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    $null = $p.Handle
+    $p.WaitForExit()
+    Get-Content $out, $err | Add-Content $log
+    Remove-Item $out, $err -ErrorAction SilentlyContinue
+    return $p.ExitCode
 }
 function Have-Winget { return [bool](Get-Command winget -ErrorAction SilentlyContinue) }
 function Winget-Install($id, $name, $extra) {
@@ -117,9 +131,10 @@ $reqHash = File-Hash @((Join-Path $Root "requirements.txt"))
 $reqMark = Join-Path $Root ".venv\.zcs_requirements"
 if (-not (Test-Path $reqMark) -or (Get-Content $reqMark -Raw).Trim() -ne $reqHash) {
     Info "Installing packages (first run downloads ~300 MB)..."
-    & $VenvPy -m pip install --upgrade pip --disable-pip-version-check -q *> (Join-Path $LogDir "pip.log")
-    & $VenvPy -m pip install -r (Join-Path $Root "requirements.txt") --disable-pip-version-check *>> (Join-Path $LogDir "pip.log")
-    if ($LASTEXITCODE -ne 0) { Fail "Python package installation failed (see logs\pip.log). Check the internet connection and try again." }
+    $pipLog = Join-Path $LogDir "pip.log"
+    Run-Logged $VenvPy "-m pip install --upgrade pip --disable-pip-version-check -q" $pipLog | Out-Null
+    $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements.txt')`" --disable-pip-version-check" $pipLog
+    if ($rc -ne 0) { Fail "Python package installation failed (see logs\pip.log). Check the internet connection and try again." }
     Set-Content $reqMark $reqHash
     Ok "Packages installed"
 } else { Ok "Packages up to date" }
@@ -164,12 +179,15 @@ if ($needBuild) {
     Push-Location $front
     try {
         Info "Installing interface packages..."
-        & npm ci --no-audit --no-fund *> (Join-Path $LogDir "npm.log")
-        if ($LASTEXITCODE -ne 0) { & npm install --no-audit --no-fund *>> (Join-Path $LogDir "npm.log") }
-        if ($LASTEXITCODE -ne 0) { Fail "Interface packages could not be installed (see logs\npm.log)." }
+        $npmLog = Join-Path $LogDir "npm.log"
+        $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+        if (-not $npm) { $npm = "npm.cmd" }
+        $rc = Run-Logged $npm "ci --no-audit --no-fund" $npmLog
+        if ($rc -ne 0) { $rc = Run-Logged $npm "install --no-audit --no-fund" $npmLog }
+        if ($rc -ne 0) { Fail "Interface packages could not be installed (see logs\npm.log)." }
         Info "Building the interface..."
-        & npm run build *>> (Join-Path $LogDir "npm.log")
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $dist)) { Fail "The interface build failed (see logs\npm.log)." }
+        $rc = Run-Logged $npm "run build" $npmLog
+        if ($rc -ne 0 -or -not (Test-Path $dist)) { Fail "The interface build failed (see logs\npm.log)." }
     } finally { Pop-Location }
     Set-Content $uiMark $uiHash
     Ok "Interface built"
