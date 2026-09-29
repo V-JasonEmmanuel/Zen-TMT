@@ -32,6 +32,7 @@ from backend.schemas import (
 from backend.utils.logging import get_logger
 
 log = get_logger(__name__)
+WORKFLOW_CUES = re.compile(r"\b(workflow|pipeline|data flow|walkthrough)\b", re.I)
 SEQUENCE_CUES = re.compile(r"\b(first|second|then|next|finally|step|stage|phase|subsequently|afterwards)\b", re.I)
 COMPARE_CUES = re.compile(r"\b(compared (to|with)|versus|vs\.?|baseline|traditional|conventional|outperform)", re.I)
 TIME_CUES = re.compile(r"\b(19|20)\d{2}\b|\bQ[1-4]\b|\b(week|month|quarter|phase) \d", re.I)
@@ -88,6 +89,7 @@ class PlanningContext:
     verifier: Verifier
     llm: Optional[LLMProvider] = None
     drop_unverified: bool = False
+    doc_graphs: dict = field(default_factory=dict)  # document_id -> architecture graph (code repos)
     chunk_map: dict[str, DocumentChunk] = field(init=False)
 
     def __post_init__(self):
@@ -174,8 +176,12 @@ def build_outline(ctx: PlanningContext) -> tuple[list[Slot], list[str]]:
         else:
             k_text = k
         groups = _split(text_pool, k_text) if k_text > 0 else []
+        pref = TOPICS.get(t, {}).get("sections", [])
         for gi, group in enumerate(groups):
-            ids = [s.chunk_id for s in group]
+            # lead with the chunk that best represents the topic (it names the slide)
+            ranked_group = sorted(group, key=lambda s: -s.score)
+            lead = next((s for s in ranked_group if cm[s.chunk_id].section_type in pref), ranked_group[0])
+            ids = [lead.chunk_id] + [s.chunk_id for s in group if s is not lead]
             layout = _choose_layout(t, [cm[i] for i in ids], gi, body)
             hint = clean_heading(cm[ids[0]].section) if ids else topic_label(t)
             body.append(Slot(layout, t, hint, ids))
@@ -188,6 +194,24 @@ def build_outline(ctx: PlanningContext) -> tuple[list[Slot], list[str]]:
     slots = front + body + tail
     log.info("Slide outline created", slides=len(slots), topics=len(active))
     return slots, warnings
+
+
+def dedupe_titles(slides: list[Slide]) -> None:
+    """Two slides must not share a title (e.g. 'Overview' twice): retitle the later one from its content."""
+    seen: set[str] = set()
+    for s in slides:
+        key = s.title.strip().lower()
+        if key in seen and s.layout not in ("cover", "references"):
+            if s.columns:
+                s.title = " & ".join(c.heading for c in s.columns[:2])
+            elif s.steps:
+                s.title = "How it works"
+            elif s.topic and topic_label(s.topic).lower() not in key:
+                s.title = f"{s.title}: {topic_label(s.topic)}"
+            else:
+                s.title = f"{s.title} (continued)"
+            key = s.title.strip().lower()
+        seen.add(key)
 
 
 def _split(items: list, k: int) -> list[list]:
@@ -203,8 +227,11 @@ def _choose_layout(topic: str, chunks: list[DocumentChunk], index: int, previous
     nums = [n for n in numbers_in(text) if "%" in n or "." in n or len(n.rstrip("%")) >= 2]
     has_figure = any(c.image_path for c in chunks)
     sections = {c.section for c in chunks}
+    demo = any(c.section.startswith("Scene ") or c.section == "Demo walkthrough" for c in chunks)
     if topic == "architecture":
         layout = "architecture" if index == 0 else "two_column"
+    elif topic == "workflow" or (topic == "methodology" and (demo or WORKFLOW_CUES.search(text))):
+        layout = "workflow" if index == 0 else ("image_text" if has_figure else "process")
     elif topic in ("methodology", "experiments"):
         layout = "research_methodology" if index == 0 else ("process" if SEQUENCE_CUES.search(text) else "two_column")
     elif topic in ("results", "findings", "benefits", "business_impact"):
@@ -405,6 +432,8 @@ class ExtractiveWriter:
         if not slide.title:
             first = self.ctx.chunk_map.get(slide.candidate_chunks[0]) if slide.candidate_chunks else None
             slide.title = clean_heading(first.section) if first else topic_label(slide.topic)
+            if slide.title.startswith("Scene "):  # demo video scene headings are not slide titles
+                slide.title = "Demo walkthrough" if lay in ("workflow", "process") else "What the demo shows"
         if lay in ("two_column", "three_column", "comparison"):
             ncols = 3 if lay == "three_column" else 2
             by_sec: dict[str, list[str]] = {}
@@ -484,6 +513,7 @@ class ContentPlanner:
             if on_progress:
                 on_progress(i, len(slots))
         self.finalize_references(slides)
+        dedupe_titles(slides)
         plan = ContentPlan(title=self.ctx.doc_title, subtitle=self.subtitle(), contract=self.ctx.contract, slides=slides,
                            warnings=warnings)
         log.info("Content plan created", slides=len(slides),
@@ -523,7 +553,7 @@ class ContentPlanner:
         slide = enforce_limits(slide)
         slide = ctx.verifier.verify_slide(slide, drop_unverified=ctx.drop_unverified)
         slide = apply_fallback(slide)
-        slide = attach_visual(slide, ctx.chunk_map, ctx.llm)
+        slide = attach_visual(slide, ctx.chunk_map, ctx.llm, ctx.doc_graphs)
         if not slide.narration:
             slide.narration = ". ".join(p.text.rstrip(".…") for p in slide.key_points[:3])
         slide.sources = self.slide_sources(slide)

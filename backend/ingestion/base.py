@@ -55,7 +55,7 @@ def get_adapter(path: Path) -> DocumentAdapter:
 
 def _load_builtin() -> None:
     # Import for registration side effects.
-    from backend.ingestion import docx, html, markdown, pdf, pptx, txt  # noqa: F401
+    from backend.ingestion import docx, html, markdown, pdf, pptx, repo, txt, video  # noqa: F401
 
 
 # ------------------------------------------------------------------ shared text helpers

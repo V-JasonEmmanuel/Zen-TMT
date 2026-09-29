@@ -40,8 +40,8 @@ def _lib() -> MediaLibrary:
 
 
 @router.get("")
-def list_media(collection: Optional[str] = None, category: Optional[str] = None, q: str = ""):
-    return [asset_payload(a) for a in _lib().list(collection, category, q)]
+def list_media(collection: Optional[str] = None, category: Optional[str] = None, q: str = "", kind: Optional[str] = None):
+    return [asset_payload(a) for a in _lib().list(collection, category, q, kind=kind)]
 
 
 @router.get("/categories")
@@ -50,21 +50,37 @@ def categories():
 
 
 @router.post("/upload")
-async def upload(files: list[UploadFile] = File(...), category: str = Form("other"), tags: str = Form(""),
-                 description: str = Form("")):
+def upload(files: list[UploadFile] = File(...), category: str = Form("other"), tags: str = Form(""),
+           description: str = Form("")):
+    """Images, videos (MP4/MOV/WebM/MKV/AVI) and audio (MP3/WAV/M4A/AAC/OGG/FLAC); streamed to disk."""
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from backend.media.library import AUDIO_EXT, VIDEO_EXT
+
     lib, out = _lib(), []
+    allowed = IMAGE_EXT | VIDEO_EXT | AUDIO_EXT
     for f in files:
-        name = f.filename or "image"
-        if not any(name.lower().endswith(e) for e in IMAGE_EXT):
-            raise HTTPException(400, f"'{name}' is not a supported image (PNG, JPG, JPEG, SVG, WebP)")
-        data = await f.read()
-        if len(data) > MAX_UPLOAD:
-            raise HTTPException(400, f"'{name}' is larger than 25 MB")
+        name = f.filename or "file"
+        ext = Path(name).suffix.lower()
+        if ext not in allowed:
+            raise HTTPException(400, f"'{name}' is not a supported image, video or audio file")
+        fd, tmp = tempfile.mkstemp(suffix=ext)
+        os.close(fd)
         try:
-            out.append(asset_payload(lib.add(data, name, "user", category=category,
-                                             tags=[t.strip() for t in tags.split(",") if t.strip()], description=description)))
+            with open(tmp, "wb") as dst:
+                shutil.copyfileobj(f.file, dst, 1 << 20)
+            limit = MAX_UPLOAD if ext in IMAGE_EXT else 2048 * 1024 * 1024
+            if Path(tmp).stat().st_size > limit:
+                raise HTTPException(400, f"'{name}' is too large")
+            out.append(asset_payload(lib.add_path(Path(tmp), name, "user", category=category,
+                                                  tags=[t.strip() for t in tags.split(",") if t.strip()], description=description)))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        finally:
+            Path(tmp).unlink(missing_ok=True)
     return out
 
 

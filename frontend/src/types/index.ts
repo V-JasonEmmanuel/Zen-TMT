@@ -45,6 +45,11 @@ export interface DocumentInfo {
   warnings: string[];
   ocr_may_help: boolean;
   created_at: string;
+  kind: "document" | "video" | "repository";
+  media_asset_id?: string | null;
+  duration?: number | null;
+  source_url?: string;
+  deferred?: boolean;
   structure: null | {
     title: string;
     pages: number;
@@ -81,6 +86,7 @@ export interface Project {
   created_at: string;
   updated_at: string;
   document: { id: string; filename: string; pages: number; status: string } | null;
+  sources?: { id: string; filename: string; format: string; status: string }[];
   last_job: Job | null;
   thumbnail: string | null;
   output_counts: Record<string, number>;
@@ -95,6 +101,17 @@ export interface ProjectOptions {
   speed?: number;
   subtitles?: boolean;
   slide_count?: number;
+  template_id?: string;
+  extra_document_ids?: string[];
+  narration_mode?: "tts" | "upload" | "none";
+  narration_asset_id?: string | null;
+  script?: string;
+  music_asset_id?: string | null;
+  video_media?: string[];
+  transition?: Transition;
+  motion?: "none" | "subtle" | "ken_burns";
+  intro?: boolean;
+  outro?: boolean;
 }
 
 export interface Contract {
@@ -281,4 +298,74 @@ export interface SystemStatus {
   offline_guard: boolean;
   onboarding_complete: boolean;
   ready: boolean;
+}
+
+export type Transition = "zensar_grid" | "fade" | "wipe" | "none";
+
+export interface MediaAsset {
+  id: string;
+  kind: string;
+  filename: string;
+  collection: string;
+  category: string;
+  tags: string[];
+  description: string;
+  width: number;
+  height: number;
+  bytes: number;
+  url: string;
+  thumb_url: string | null;
+  duration?: number | null;
+  source_label?: string;
+  created_at?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface TemplateItem {
+  id: string;
+  name: string;
+  description: string;
+  kind: "preset" | "pptx";
+  previews: string[];
+}
+
+export interface Crop { x: number; y: number; w: number; h: number }
+
+export interface TimelineClip {
+  id: string;
+  type: "slide" | "image" | "video" | "intro" | "outro";
+  label: string;
+  slide_number?: number | null;
+  asset_id?: string | null;
+  trim_start: number;
+  trim_end?: number | null;
+  speed: number;
+  crop?: Crop | null;
+  duration: number;
+  transition: Transition;
+  motion: "none" | "subtle" | "ken_burns";
+  keep_audio: boolean;
+  audio_volume: number;
+  narration_text: string;
+  narration_locked: boolean;
+  narration_asset_id?: string | null;
+  narration_segments: { start: number; end: number; text: string }[];
+  source_duration: number;
+  // read-only enrichment from the server
+  asset?: { id: string; kind: string; filename: string; url: string; thumb_url: string | null; duration?: number | null; width: number; height: number; has_audio: boolean } | null;
+  narration_asset?: { id: string; filename: string; duration?: number | null } | null;
+  thumb_url?: string;
+}
+
+export interface Timeline {
+  version: number;
+  width: number;
+  height: number;
+  fps: number;
+  clips: TimelineClip[];
+  music: { asset_id?: string | null; volume: number; duck: boolean; fade_in: number; fade_out: number; asset?: { id: string; filename: string; duration?: number | null } | null };
+  narration: { mode: "tts" | "upload" | "none"; voice: string; speed: number; asset_id?: string | null; script: string; asset?: { id: string; filename: string; duration?: number | null } | null };
+  subtitles: boolean;
+  updated_at: string;
+  rendered: Partial<Record<"preview" | "final", { duration: number; clips: { id: string; type: string; label: string; start: number; end: number }[] }>>;
 }

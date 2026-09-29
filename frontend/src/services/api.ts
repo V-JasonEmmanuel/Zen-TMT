@@ -1,6 +1,6 @@
 import type {
-  BrandSummary, BrandView, ContentPlan, Contract, DocumentInfo, Job, OutputFile, Project, RuntimeSettings,
-  SourceMapping, Suggestion, SystemStatus,
+  BrandSummary, BrandView, ContentPlan, Contract, DocumentInfo, Job, MediaAsset, OutputFile, Project, RuntimeSettings,
+  SourceMapping, Suggestion, SystemStatus, TemplateItem, Timeline,
 } from "../types";
 
 export class ApiError extends Error {
@@ -39,6 +39,7 @@ export const api = {
     fd.append("file", file);
     return request<DocumentInfo>("/api/documents/upload", { method: "POST", body: fd });
   },
+  importGithub: (url: string, token = "") => request<DocumentInfo>("/api/documents/github", { method: "POST", body: json({ url, token }) }),
   documents: () => request<DocumentInfo[]>("/api/documents"),
   document: (id: string) => request<DocumentInfo>(`/api/documents/${id}`),
   formats: () => request<{ extensions: string[] }>("/api/documents/formats"),
@@ -46,7 +47,7 @@ export const api = {
   // projects
   projects: () => request<Project[]>("/api/projects"),
   project: (id: string) => request<Project>(`/api/projects/${id}`),
-  createProject: (body: Partial<Project> & { name: string; document_id: string; instruction: string }) =>
+  createProject: (body: Partial<Project> & { name: string; document_id?: string; document_ids?: string[]; instruction: string }) =>
     request<Project>("/api/projects", { method: "POST", body: json(body) }),
   updateProject: (id: string, body: Partial<Pick<Project, "name" | "brand_id" | "instruction" | "output_formats" | "options">>) =>
     request<Project>(`/api/projects/${id}`, { method: "PATCH", body: json(body) }),
@@ -66,6 +67,30 @@ export const api = {
     request<Job>("/api/generate", { method: "POST", body: json({ project_id, kind, include_video }) }),
   job: (id: string) => request<Job>(`/api/generation/${id}`),
   cancelJob: (id: string) => request<{ cancelling: string }>(`/api/generation/${id}/cancel`, { method: "POST" }),
+
+  // video editor
+  timeline: (id: string) => request<Timeline>(`/api/projects/${id}/timeline`),
+  saveTimeline: (id: string, tl: Timeline) => request<Timeline>(`/api/projects/${id}/timeline`, { method: "PUT", body: json(tl) }),
+  resetTimeline: (id: string) => request<Timeline>(`/api/projects/${id}/timeline/reset`, { method: "POST" }),
+  renderVideo: (id: string, quality: "preview" | "final") => request<Job>(`/api/projects/${id}/video/render`, { method: "POST", body: json({ quality }) }),
+  parseScript(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    return request<{ script: string; sections: number }>("/api/scripts/parse", { method: "POST", body: fd });
+  },
+
+  // media library
+  media: (kind?: string, q = "") => request<MediaAsset[]>(`/api/media?${new URLSearchParams({ ...(kind ? { kind } : {}), q })}`),
+  uploadMedia(files: File[], category = "other") {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    fd.append("category", category);
+    return request<MediaAsset[]>("/api/media/upload", { method: "POST", body: fd });
+  },
+  deleteMedia: (id: string) => request<unknown>(`/api/media/${id}`, { method: "DELETE" }),
+
+  // templates
+  templateGallery: (brandId: string) => request<TemplateItem[]>(`/api/templates/gallery?brand_id=${encodeURIComponent(brandId)}`),
 
   // brands
   brands: () => request<BrandSummary[]>("/api/brands"),

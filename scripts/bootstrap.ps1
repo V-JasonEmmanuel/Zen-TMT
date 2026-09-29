@@ -232,10 +232,18 @@ if ($env:ZCS_SKIP_AI -eq "1") {
                     $models = Ollama-Models
                 }
             }
+            if ($models -and $models.Count -gt 0 -and -not ($models | Where-Object { $_ -match "vl|llava|moondream|vision" })) {
+                if (Ask "    Download the vision model qwen2.5vl:3b (~3.2 GB, one time) so demo videos are understood frame by frame?") {
+                    & $ollama pull qwen2.5vl:3b
+                    $models = Ollama-Models
+                }
+            }
             $envText = Get-Content $EnvFile -Raw
             if ($models -and $models.Count -gt 0 -and $envText -match "(?m)^OLLAMA_MODEL=\s*$") {
                 $pick = ($models | Where-Object { $_ -like "qwen2.5:3b*" } | Select-Object -First 1)
-                if (-not $pick) { $pick = ($models | Where-Object { $_ -like "qwen*" -or $_ -like "llama*" -or $_ -like "phi*" } | Select-Object -First 1) }
+                $text = @($models | Where-Object { $_ -notmatch "vl|llava|moondream|vision" })  # vision models only describe frames
+                if (-not $pick) { $pick = ($text | Where-Object { $_ -like "qwen*" -or $_ -like "llama*" -or $_ -like "phi*" } | Select-Object -First 1) }
+                if (-not $pick -and $text.Count -gt 0) { $pick = $text[0] }
                 if (-not $pick) { $pick = $models[0] }
                 $envText = $envText -replace "(?m)^OLLAMA_MODEL=\s*$", "OLLAMA_MODEL=$pick"
                 Set-Content $EnvFile $envText -NoNewline

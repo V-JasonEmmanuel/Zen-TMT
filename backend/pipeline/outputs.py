@@ -94,7 +94,9 @@ class OutputWriter:
         self.work = project_work_dir(project)
         self.out.mkdir(parents=True, exist_ok=True)
         self.work.mkdir(parents=True, exist_ok=True)
-        self.ctx = RenderContext(plan, doc_dir(project["document_id"]) if project.get("document_id") else None)
+        from backend.pipeline.sources import project_document_ids
+
+        self.ctx = RenderContext(plan, [doc_dir(d) for d in project_document_ids(project)])
         self._scenes: Optional[list[Scene]] = None
 
     # -------------------------------------------------------------- scenes

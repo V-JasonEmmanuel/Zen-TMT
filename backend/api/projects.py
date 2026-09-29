@@ -28,7 +28,8 @@ FORMATS = {"pptx", "pdf", "png", "mp4"}
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    document_id: str
+    document_id: str = ""
+    document_ids: list[str] = Field(default_factory=list)  # multiple sources: documents, videos, repositories
     brand_id: str = "zensar"
     template_id: Optional[str] = None
     instruction: str = Field(min_length=3, max_length=4000)
@@ -69,7 +70,11 @@ def _summary(p: dict) -> dict:
     job = db.get_job(p["last_job_id"]) if p.get("last_job_id") else None
     outs = db.list_outputs(p["id"])
     thumb = next((o.path for o in outs if o.kind == "slide_image"), None)
+    from backend.pipeline.sources import project_document_ids
+
+    docs = [d for d in (db.get_document(i) for i in project_document_ids(p)) if d]
     return {**p, "document": {"id": doc["id"], "filename": doc["filename"], "pages": doc["page_count"], "status": doc["status"]} if doc else None,
+            "sources": [{"id": d["id"], "filename": d["filename"], "format": d["format"], "status": d["status"]} for d in docs],
             "last_job": job.model_dump() if job else None, "thumbnail": thumb,
             "output_counts": {k: sum(1 for o in outs if o.kind == k) for k in {o.kind for o in outs}}}
 
@@ -82,11 +87,17 @@ def list_projects():
 @router.post("")
 def create_project(body: ProjectCreate):
     db = get_db()
-    doc = db.get_document(body.document_id)
-    if not doc:
-        raise HTTPException(400, "Upload a document first")
-    if doc["status"] == "failed":
-        raise HTTPException(400, doc.get("error") or "The document could not be processed")
+    ids = list(dict.fromkeys([d for d in [body.document_id, *body.document_ids] if d]))
+    if not ids:
+        raise HTTPException(400, "Add at least one source (document, video or repository)")
+    for did in ids:
+        doc = db.get_document(did)
+        if not doc:
+            raise HTTPException(400, "One of the sources no longer exists - upload it again")
+        if doc["status"] == "failed":
+            raise HTTPException(400, f"{doc['filename']}: {doc.get('error') or 'could not be processed'}")
+    body.document_id = ids[0]
+    body.options = {**body.options, "extra_document_ids": ids[1:]}
     from backend.branding.brand_profile import BrandStore
 
     if not BrandStore().exists(body.brand_id):

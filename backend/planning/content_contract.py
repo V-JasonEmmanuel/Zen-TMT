@@ -139,12 +139,22 @@ def parse_instruction_rules(instruction: str) -> ContentContract:
     for a, b in sorted(neg_spans, reverse=True):
         clean = clean[:a] + " " + clean[b:]
     for key in ("architecture", "methodology", "results", "benefits", "recommendations", "timeline", "risks",
-                "limitations", "background", "findings", "conclusion", "costs", "business_impact"):
+                "limitations", "background", "findings", "conclusion", "costs", "business_impact", "workflow", "implementation",
+                "overview"):
         pat = key.replace("_", " ")
         if re.search(rf"\b{pat}", clean.lower()) or any(
                 re.search(rf"\b{a.replace('_', ' ')}\b", clean.lower()) for a, t in ALIASES.items() if t == key and len(a) > 5):
             includes.append(key)
-    c.include = [t for t in dict.fromkeys(includes) if t not in excludes]
+    if re.search(r"\b(apis?|endpoints?)\b", clean.lower()):
+        includes.append("implementation")
+
+    def _pos(topic: str) -> int:  # keep the order in which the user listed the topics
+        words = [topic.replace("_", " ")] + [a.replace("_", " ") for a, t in ALIASES.items() if t == topic]
+        words += ["api", "stack"] if topic == "implementation" else []
+        hits = [m.start() for w in words for m in [re.search(rf"\b{re.escape(w)}", clean.lower())] if m]
+        return min(hits) if hits else 10 ** 6
+
+    c.include = sorted([t for t in dict.fromkeys(includes) if t not in excludes], key=_pos)
     c.exclude = list(dict.fromkeys(excludes))
 
     formats = []

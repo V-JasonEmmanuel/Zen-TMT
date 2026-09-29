@@ -4,10 +4,12 @@ import { AppLayout } from "./layouts/AppLayout";
 import { BrandEditor } from "./pages/BrandEditor";
 import { Brands } from "./pages/Brands";
 import { Dashboard } from "./pages/Dashboard";
+import { MediaLibrary } from "./pages/MediaLibrary";
 import { NewProject } from "./pages/NewProject";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { Projects } from "./pages/Projects";
 import { SettingsPage } from "./pages/Settings";
+import { Templates } from "./pages/Templates";
 import { Welcome } from "./pages/Welcome";
 import { api } from "./services/api";
 
@@ -40,6 +42,8 @@ export default function App() {
             <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/brands" element={<Brands />} />
             <Route path="/brands/:id" element={<BrandEditor />} />
+            <Route path="/templates" element={<Templates />} />
+            <Route path="/media" element={<MediaLibrary />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

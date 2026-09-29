@@ -1,20 +1,36 @@
-"""Document upload and inspection."""
+"""Source upload and inspection: documents, demo videos, repository archives and GitHub repositories."""
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from backend.ingestion import supported_extensions
-from backend.services.documents import DocumentError, process_document, store_upload
+from backend.services.documents import HEAVY_FORMATS, DocumentError, process_document, store_upload_file
 from backend.storage.database import get_db
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
+class GitHubImport(BaseModel):
+    url: str
+    token: str = ""
+
+
 def _public(row: dict) -> dict:
+    meta = row.get("meta") or {}
+    kind = "video" if row.get("format") in ("mp4", "mov", "webm", "mkv", "avi", "m4v") else \
+        "repository" if row.get("format") == "zip" else "document"
     return {k: row.get(k) for k in ("id", "filename", "format", "size", "page_count", "status", "extraction_method",
-                                    "error", "structure", "created_at")} | {"warnings": row.get("meta", {}).get("warnings", []),
-                                                                            "title": row.get("meta", {}).get("title", ""),
-                                                                            "ocr_may_help": row.get("meta", {}).get("ocr_may_help", False)}
+                                    "error", "structure", "created_at")} | {
+        "warnings": meta.get("warnings", []), "title": meta.get("title", ""), "ocr_may_help": meta.get("ocr_may_help", False),
+        "kind": kind, "media_asset_id": meta.get("media_asset_id"), "duration": meta.get("duration"),
+        "source_url": meta.get("source_url", ""),
+        "deferred": row.get("status") == "uploaded" and row.get("format") in HEAVY_FORMATS}
 
 
 @router.get("/formats")
@@ -22,18 +38,50 @@ def formats():
     return {"extensions": supported_extensions()}
 
 
+def _stream_to_temp(file: UploadFile) -> Path:
+    suffix = Path(file.filename or "").suffix.lower()
+    fd, tmp = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    with open(tmp, "wb") as out:
+        shutil.copyfileobj(file.file, out, 1 << 20)
+    return Path(tmp)
+
+
 @router.post("/upload")
 def upload(file: UploadFile = File(...)):
     db = get_db()
-    data = file.file.read()
+    tmp = _stream_to_temp(file)
     try:
-        row = store_upload(db, file.filename or "document", data)
+        row = store_upload_file(db, file.filename or "document", tmp)
     except DocumentError as exc:
         raise HTTPException(400, str(exc)) from exc
+    finally:
+        tmp.unlink(missing_ok=True)
+    if row["format"] not in HEAVY_FORMATS:  # documents are analysed immediately; videos/repos during generation
+        try:
+            process_document(db, row["id"])
+        except DocumentError:
+            pass  # status + user-facing error are stored on the document row
+    return _public(db.get_document(row["id"]))
+
+
+@router.post("/github")
+def import_github(body: GitHubImport):
+    """Download a GitHub repository (explicit online action; only the repository URL is sent)."""
+    from backend.services.github import GitHubError, download_repo
+
     try:
-        process_document(db, row["id"])
-    except DocumentError:
-        pass  # status + user-facing error are stored on the document row
+        path, name = download_repo(body.url, body.token)
+    except GitHubError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db = get_db()
+    try:
+        row = store_upload_file(db, name, path)
+    except DocumentError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    finally:
+        path.unlink(missing_ok=True)
+    db.update_document(row["id"], meta={**(row.get("meta") or {}), "source_url": body.url.strip()})
     return _public(db.get_document(row["id"]))
 
 

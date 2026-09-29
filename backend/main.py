@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
-from backend.api import brands, documents, generation, media, projects, settings, templates  # noqa: E402
+from backend.api import brands, documents, generation, media, projects, settings, templates, video  # noqa: E402
 from backend.branding.brand_profile import BrandStore, ensure_default_brands  # noqa: E402
 from backend.pipeline.jobs import runner  # noqa: E402
 from backend.pipeline.orchestrator import register_handlers  # noqa: E402
@@ -62,8 +62,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Zensar Content Studio", version="1.0.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
                    allow_methods=["*"], allow_headers=["*"])
-for r in (documents, projects, generation, brands, templates, settings, media):
+for r in (documents, projects, generation, brands, templates, settings, media, video):
     app.include_router(r.router)
+app.include_router(video.script_router)
 
 
 @app.get("/api/health")

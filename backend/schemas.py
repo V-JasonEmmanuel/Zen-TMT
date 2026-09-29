@@ -63,6 +63,7 @@ class Block(BaseModel):
     table_index: Optional[int] = None
     figure_index: Optional[int] = None
     image_path: Optional[str] = None  # extracted figure image (relative to document dir)
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtractedDocument(BaseModel):
@@ -135,6 +136,7 @@ class DocumentChunk(BaseModel):
     table_index: Optional[int] = None
     figure_index: Optional[int] = None
     image_path: Optional[str] = None
+    meta: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def source_reference(self) -> str:

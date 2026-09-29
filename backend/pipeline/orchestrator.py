@@ -14,7 +14,6 @@ from typing import Optional
 
 from backend.branding.brand_profile import BrandStore
 from backend.branding.theme import Theme, build_theme
-from backend.intelligence.embeddings import embed_chunks_cached
 from backend.intelligence.relevance import rank_chunks
 from backend.intelligence.verification import Verifier
 from backend.llm import LLMUnavailable, get_llm
@@ -25,9 +24,9 @@ from backend.planning.content_contract import parse_instruction
 from backend.planning.content_planner import ContentPlanner, PlanningContext, PlanningError
 from backend.planning.slide_planner import enforce_limits
 from backend.planning.visual_planner import attach_visual
-from backend.rendering.video.storyboard import render_video
 from backend.schemas import ContentContract, ContentPlan, GenerationJob
-from backend.services.documents import DocumentError, doc_dir, process_document
+from backend.pipeline.sources import SourceBundle, index_sources, load_sources
+from backend.services.documents import DocumentError
 from backend.storage.database import get_db
 from backend.utils.logging import get_logger
 
@@ -55,7 +54,7 @@ RENDER_STAGES = [("sources", "Saving content plan & source mapping"), ("design",
                  ("pptx", "Generating presentation"), ("previews", "Rendering slide previews & PDF"),
                  ("visuals", "Generating visuals"), ("video", "Generating video")]
 VIDEO_STAGES = [("design", "Applying brand design system"), ("previews", "Rendering slide previews"),
-                ("video", "Generating video")]
+                ("video", "Rendering video (motion graphics, narration, music)")]
 
 
 # ------------------------------------------------------------------ helpers
@@ -85,30 +84,48 @@ def _theme(project: dict) -> Theme:
     store = BrandStore()
     brand_id = project.get("brand_id") or "zensar"
     try:
-        return build_theme(store.load(brand_id), store)
+        theme = build_theme(store.load(brand_id), store)
     except FileNotFoundError as exc:
         raise StageFailed(f"Brand profile '{brand_id}' was not found.") from exc
+    return apply_template(theme, project)
 
 
-def _index(project: dict, chunks, rep: Optional[Reporter] = None):
-    vectors, embedder = embed_chunks_cached(doc_dir(project["document_id"]), [c.id for c in chunks], [c.text for c in chunks])
+def apply_template(theme: Theme, project: dict) -> Theme:
+    """Project template: a design preset ("preset:<id>") or an uploaded PPTX template ("<template id>")."""
+    from backend.branding.presets import apply_preset
+
+    tid = (project.get("options") or {}).get("template_id") or project.get("template_id") or ""
+    if tid.startswith("preset:"):
+        return apply_preset(theme, tid.split(":", 1)[1])
+    if tid:
+        t = get_db().get_template(tid)
+        if t:
+            path = BrandStore().root / t["path"]
+            if path.exists():
+                theme.template_path = path
+                theme.template_blank_layout = (t.get("analysis") or {}).get("blank_layout")
+    return theme
+
+
+def _index(bundle: SourceBundle, rep: Optional[Reporter] = None):
+    vectors, embedder = index_sources(bundle)
     if embedder.degraded and rep:
         rep.note("The embedding model is unavailable; relevance used keyword matching only.")
     return vectors, embedder
 
 
 def _context(project: dict, contract: ContentContract, llm: Optional[LLMProvider], rep: Optional[Reporter] = None,
-             doc_bundle=None, index=None) -> PlanningContext:
+             bundle: Optional[SourceBundle] = None, index=None) -> PlanningContext:
     db = get_db()
-    doc, st, chunks = doc_bundle or process_document(db, project["document_id"])
-    usable = list(chunks)
-    vectors, embedder = index or _index(project, usable, rep)
+    bundle = bundle or load_sources(db, project)
+    usable = bundle.chunks
+    vectors, embedder = index or _index(bundle, rep)
     relevance = rank_chunks(contract, usable, vectors, embedder)
     rs = db.runtime_settings()
     verifier = Verifier({c.id: c for c in usable}, embedder, threshold=rs.verification_threshold)
     row = db.get_document(project["document_id"]) or {}
-    return PlanningContext(project["document_id"], row.get("filename", ""), doc.title or st.title, usable, contract,
-                           relevance, embedder, verifier, llm, drop_unverified=rs.drop_unverified)
+    return PlanningContext(project["document_id"], row.get("filename", ""), bundle.title(project["name"]), usable, contract,
+                           relevance, embedder, verifier, llm, drop_unverified=rs.drop_unverified, doc_graphs=bundle.graphs)
 
 
 def _render(rep: Reporter, project: dict, plan: ContentPlan, formats: list[str], *, video: bool, stages: set[str]) -> None:
@@ -167,19 +184,17 @@ def _render(rep: Reporter, project: dict, plan: ContentPlan, formats: list[str],
             rep.skip("visuals")
 
     if "video" in stages:
-        if video and "mp4" in formats and images:
-            rep.start("video", "Synthesising narration and encoding (this can take a few minutes)")
-            rs = db.runtime_settings()
-            opts = project["options"]
+        if video and "mp4" in formats:
+            rep.start("video", "Building the video timeline")
+            quality = "preview" if video == "preview" else "final"
             try:
-                res = render_video(plan, images, writer.out / "video", project_work_dir(project),
-                                   narration=opts.get("narration", rs.tts_enabled), tts_engine=rs.tts_engine,
-                                   voice=opts.get("voice") or rs.tts_voice, speed=float(opts.get("speed") or rs.tts_rate),
-                                   subtitles=opts.get("subtitles", rs.subtitles), ffmpeg_path=rs.ffmpeg_path,
-                                   fade_color=theme.c("background"))
+                from backend.pipeline.video import render_project_video
+
+                res = render_project_video(db, project, plan, theme, writer, quality, on_progress=lambda m: rep.update("video", m))
                 if res.video:
                     kinds += ["video", "subtitles"]
-                    msg = f"{res.duration:.0f}s video" + (" with narration" if res.narrated else " (no narration)")
+                    msg = (f"{res.duration:.0f}s {'preview' if quality == 'preview' else 'video'} · {len(res.clips)} clips"
+                           + (" with narration" if res.narrated else " (no narration)"))
                     if res.warnings:
                         rep.warn("video", msg + ". " + " ".join(res.warnings))
                     else:
@@ -187,10 +202,8 @@ def _render(rep: Reporter, project: dict, plan: ContentPlan, formats: list[str],
                 else:
                     rep.fail("video", " ".join(res.warnings) or "The video could not be generated.")
             except Exception as exc:
-                log.error("Video generation failed", error=type(exc).__name__)
+                log.error("Video generation failed", error=type(exc).__name__, detail=str(exc)[:120])
                 rep.fail("video", "The video could not be generated. The presentation and images are unaffected.")
-        elif "mp4" in formats and not images:
-            rep.fail("video", "The video needs slide previews, which failed to render.")
         else:
             rep.skip("video")
 
@@ -205,21 +218,29 @@ def run_full(rep: Reporter, job: GenerationJob) -> None:
 
     rep.start("document")
     try:
-        bundle = process_document(db, project["document_id"])
+        bundle = load_sources(db, project, on_progress=lambda m: rep.update("document", m))
     except DocumentError as exc:
         hint = " Tip: this looks like a scanned PDF - install an offline OCR engine (see README)." if exc.ocr_may_help else ""
         raise StageFailed(str(exc) + hint) from exc
-    doc, st, chunks = bundle
-    rep.done("document", f"{doc.page_count} page(s) · {doc.extraction_method} text")
-    for w in doc.warnings:
-        rep.note(w)
+    chunks = bundle.chunks
+    pages = sum(d.page_count for _, d, _, _ in bundle.docs)
+    rep.done("document", f"{len(bundle.docs)} source(s): {bundle.summary()} · {pages} page(s)/scene(s)")
+    for _, d, _, _ in bundle.docs:
+        for w in d.warnings:
+            rep.note(w)
 
     rep.start("structure")
-    types = ", ".join(t.value.replace("_", " ") for t in st.detected_types[:6]) or "no standard sections"
-    rep.done("structure", f"{len(st.sections)} sections ({types}) · {st.table_count} tables · {st.figure_count} figures")
+    all_sections = [sec for _, _, st_, _ in bundle.docs for sec in st_.sections]
+    detected = list(dict.fromkeys(t for _, _, st_, _ in bundle.docs for t in st_.detected_types))
+    types = ", ".join(t.value.replace("_", " ") for t in detected[:6]) or "no standard sections"
+    tables = sum(st_.table_count for _, _, st_, _ in bundle.docs)
+    figures = sum(st_.figure_count for _, _, st_, _ in bundle.docs)
+    rep.done("structure", f"{len(all_sections)} sections ({types}) · {tables} tables · {figures} figures")
+    if not chunks:
+        raise StageFailed("No readable content was found in the uploaded sources.")
 
     rep.start("index", f"{len(chunks)} content chunks - computing embeddings")
-    index = _index(project, chunks, rep)
+    index = _index(bundle, rep)
     rep.done("index", f"{len(chunks)} content chunks indexed ({getattr(index[1], 'kind', '')})")
 
     rep.start("contract")
@@ -227,7 +248,7 @@ def run_full(rep: Reporter, job: GenerationJob) -> None:
     defaults = {"brand_profile": project.get("brand_id") or "zensar", "output_formats": formats}
     if project["options"].get("slide_count"):
         defaults["slide_count"] = int(project["options"]["slide_count"])
-    contract = parse_instruction(project["instruction"], llm, [s.title for s in st.sections], defaults=defaults)
+    contract = parse_instruction(project["instruction"], llm, [s.title for s in all_sections], defaults=defaults)
     db.update_project(project["id"], contract=contract.model_dump())
     focus = ", ".join(contract.include) or "general overview"
     excl = f" · excluding {', '.join(contract.exclude)}" if contract.exclude else ""
@@ -262,6 +283,10 @@ def run_full(rep: Reporter, job: GenerationJob) -> None:
     rep.start("sources")
     db.save_plan(plan)
     rep.done("sources", f"Plan v{plan.version} saved")
+    if "mp4" in formats:
+        from backend.pipeline.video import ensure_timeline
+
+        ensure_timeline(db, project, plan, _theme(project), rebuild=not bool(job.params.get("keep_timeline")))
     _finish_render(rep, project, plan, formats, video=True)
 
 
@@ -322,7 +347,8 @@ def run_video(rep: Reporter, job: GenerationJob) -> None:
     if not plan:
         raise StageFailed("There is no content plan to render yet.")
     formats = list(dict.fromkeys((project["output_formats"] or []) + ["mp4"]))
-    _render(rep, project, plan, formats, video=True, stages={"previews", "video"})
+    quality = job.params.get("quality", "final")
+    _render(rep, project, plan, formats, video="preview" if quality == "preview" else True, stages={"previews", "video"})
 
 
 def apply_slide_edit(plan: ContentPlan, slide_number: int, edited: dict, ctx: Optional[PlanningContext]) -> ContentPlan:

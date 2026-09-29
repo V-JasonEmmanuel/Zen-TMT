@@ -18,9 +18,9 @@ LayoutFn = Callable[[Scene, Theme, Slide, "RenderContext"], None]
 
 
 class RenderContext:
-    def __init__(self, plan: ContentPlan, figures_root: Optional[Path] = None):
+    def __init__(self, plan: ContentPlan, figures_root: "Optional[Path] | list[Path]" = None):
         self.plan = plan
-        self.figures_root = figures_root
+        self.figures_roots = [figures_root] if isinstance(figures_root, Path) else list(figures_root or [])
         self.total = len(plan.slides)
         self.theme: Optional[Theme] = None
 
@@ -42,10 +42,15 @@ class RenderContext:
         return f"Visual: {s.image.source_label}" if s.image.source_label else ""
 
     def figure_path(self, rel: Optional[str]) -> Optional[str]:
-        if not rel or not self.figures_root:
+        if not rel:
             return None
-        p = (self.figures_root / rel).resolve()
-        return str(p) if p.exists() else None
+        from backend.utils.config import get_settings
+
+        for root in [get_settings().documents_path, *self.figures_roots]:  # "<doc id>/figures/..." or legacy relative
+            p = (root / rel).resolve()
+            if p.is_file() and root.resolve() in p.parents:  # never outside the document folders
+                return str(p)
+        return None
 
 
 def _speaker_notes(slide: Slide) -> str:
@@ -99,7 +104,7 @@ def _zensar_cover(scene: Scene, t: Theme, s: Slide, ctx: RenderContext, divider:
     from backend.rendering.motifs import ZensarModule, cover_composition
 
     W, H = t.slide_w, t.slide_h
-    dark = divider
+    dark = divider or t.cover_style == "solid_primary"
     scene.background = t.c("primary") if dark else t.c("background")
     cols = 3 if not divider else 2
     cell = W * (0.40 if not divider else 0.28) / cols
@@ -129,7 +134,7 @@ def _zensar_cover(scene: Scene, t: Theme, s: Slide, ctx: RenderContext, divider:
     if not divider:
         doc = next((sl.sources[0].document_name for sl in ctx.plan.slides if sl.sources), "")
         if doc:
-            b = C.text(t, tx, H - t.margin_y - 0.4, tw, 0.32, f"Based on: {doc}", role="text_secondary",
+            b = C.text(t, tx, H - t.margin_y - 0.4, tw, 0.32, f"Based on: {doc}", role="on_primary" if dark else "text_secondary",
                        size=t.sizes["caption"] + 1, font="caption", min_size=7, name="cover_basis")
             b.anim = "chrome"
             scene.add(b)

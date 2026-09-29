@@ -25,6 +25,7 @@ TOPICS: dict[str, dict] = {
     "related_work": {"sections": [S.related_work], "keywords": "prior work literature previous studies", "desc": "related work and literature"},
     "architecture": {"sections": [S.architecture], "keywords": "architecture component layer module system design pipeline framework service interface integration", "desc": "system architecture, components and how they interact"},
     "methodology": {"sections": [S.methodology, S.experiments], "keywords": "method methodology approach procedure dataset data collection training model technique design step process", "desc": "methodology, approach and procedure"},
+    "workflow": {"sections": [S.methodology, S.implementation], "keywords": "workflow pipeline flow step stage process walkthrough demo scene screen user then next how it works", "desc": "workflow, pipeline and how it works step by step"},
     "implementation": {"sections": [S.implementation], "keywords": "implementation deploy deployment setup configuration tooling", "desc": "implementation and deployment"},
     "implementation_code": {"sections": [], "content": [ContentType.code], "keywords": "code function class snippet listing", "desc": "source code listings"},
     "experiments": {"sections": [S.experiments], "keywords": "experiment evaluation benchmark setup dataset baseline", "desc": "experimental setup and evaluation"},
@@ -51,6 +52,10 @@ ALIASES = {
     "detailed_implementation_code": "implementation_code", "system_architecture": "architecture", "design": "architecture",
     "conclusions": "conclusion", "summary": "executive_summary", "next_steps": "recommendations",
     "limitation": "limitations", "risk": "risks", "cost": "costs", "roadmap": "timeline", "equations": "math",
+    "pipeline": "workflow", "workflows": "workflow", "walkthrough": "workflow", "demo": "workflow", "how_it_works": "workflow",
+    "data_flow": "workflow", "flow": "workflow", "technology_stack": "implementation", "tech_stack": "implementation",
+    "stack": "implementation", "api": "implementation", "apis": "implementation", "endpoints": "implementation",
+    "installation": "implementation", "setup": "implementation", "features": "benefits", "key_features": "benefits",
     "citations": "references", "bibliography": "references", "literature_review": "related_work", "context": "background",
 }
 ALWAYS_LOW = {S.references, S.acknowledgements, S.appendix}

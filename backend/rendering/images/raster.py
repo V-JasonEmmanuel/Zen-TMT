@@ -23,8 +23,29 @@ class RasterRenderer:
         s = self.width_px * SS / scene.width  # px per inch at supersampled size
         W, H = round(scene.width * s), round(scene.height * s)
         img = Image.new("RGB", (W, H), hex_to_rgb(scene.background))
+        self._draw_all(img, scene.elements, s)
+        return img.resize((self.width_px, round(self.width_px * scene.height / scene.width)), Image.LANCZOS)
+
+    def render_layer(self, scene: Scene, elements: list) -> "tuple[Image.Image, int, int] | None":
+        """Render a subset of elements on a transparent canvas; returns (RGBA crop, x, y) at output
+        resolution, or None when nothing is visible. Used by the motion-graphics engine."""
+        s = self.width_px * SS / scene.width
+        W, H = round(scene.width * s), round(scene.height * s)
+        img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        self._draw_all(img, elements, s)
+        bbox = img.getchannel("A").getbbox()
+        if not bbox:
+            return None
+        pad = 2 * SS
+        x0, y0 = max(0, bbox[0] - pad) // SS * SS, max(0, bbox[1] - pad) // SS * SS
+        x1, y1 = min(W, bbox[2] + pad), min(H, bbox[3] + pad)
+        crop = img.crop((x0, y0, x1, y1))
+        out = crop.resize((max(1, round(crop.width / SS)), max(1, round(crop.height / SS))), Image.LANCZOS)
+        return out, x0 // SS, y0 // SS
+
+    def _draw_all(self, img: Image.Image, elements: list, s: float) -> None:
         draw = ImageDraw.Draw(img)
-        for el in scene.elements:
+        for el in elements:
             if isinstance(el, Shape):
                 if el.opacity < 0.999:
                     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -45,7 +66,6 @@ class RasterRenderer:
                 self._table(draw, el, s)
             elif isinstance(el, Chart):
                 self._chart(img, el, s)
-        return img.resize((self.width_px, round(self.width_px * scene.height / scene.width)), Image.LANCZOS)
 
     def save(self, scene: Scene, path: Path, fmt: str = "PNG") -> Path:
         img = self.render(scene)

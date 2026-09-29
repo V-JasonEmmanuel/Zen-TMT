@@ -129,7 +129,8 @@ def architecture_graph(chunks: list[DocumentChunk], llm: Optional[LLMProvider], 
     return Visual(kind="workflow", nodes=nodes, edges=edges, sources=ids)
 
 
-def attach_visual(slide: Slide, chunks: dict[str, DocumentChunk], llm: Optional[LLMProvider]) -> Slide:
+def attach_visual(slide: Slide, chunks: dict[str, DocumentChunk], llm: Optional[LLMProvider],
+                  graphs: Optional[dict] = None) -> Slide:
     """Decide the slide's visual from its layout and verified content."""
     lay = slide.layout
     if lay in ("process", "workflow", "research_methodology") and slide.steps:
@@ -143,6 +144,14 @@ def attach_visual(slide: Slide, chunks: dict[str, DocumentChunk], llm: Optional[
     elif lay == "comparison" and len(slide.columns) == 2:
         slide.visual = Visual(kind="comparison", title=slide.title)
     elif lay == "architecture":
+        if not (slide.visual and slide.visual.nodes) and graphs:
+            # code repositories carry a dependency graph measured from real imports - prefer it
+            doc_ids = [chunks[c].document_id for c in slide.candidate_chunks if c in chunks]
+            g = next((graphs[d] for d in doc_ids if d in graphs and graphs[d].get("nodes")), None)
+            if g and len(g["nodes"]) >= 2:
+                slide.visual = Visual(kind="architecture", nodes=[GraphNode(**n) for n in g["nodes"]],
+                                      edges=[GraphEdge(**e) for e in g["edges"]],
+                                      sources=[c for c in slide.candidate_chunks if c in chunks][:4])
         if not (slide.visual and slide.visual.nodes):
             cands = [chunks[c] for c in slide.candidate_chunks if c in chunks][:4]
             v = architecture_graph(cands, llm, "architecture")
@@ -152,7 +161,7 @@ def attach_visual(slide: Slide, chunks: dict[str, DocumentChunk], llm: Optional[
     elif lay in ("text_image", "image_text"):
         fig = next((chunks[c] for c in slide.candidate_chunks if c in chunks and chunks[c].image_path), None)
         if fig and not (slide.visual and slide.visual.kind == "document_figure"):
-            slide.visual = Visual(kind="document_figure", image_path=fig.image_path, caption=fig.text[:120],
+            slide.visual = Visual(kind="document_figure", image_path=f"{fig.document_id}/{fig.image_path}", caption=fig.text[:120],
                                   title=slide.title, sources=[fig.id])
     elif lay == "table" and slide.table:
         slide.visual = Visual(kind="table", title=slide.title, sources=[slide.table.source])

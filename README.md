@@ -1,8 +1,8 @@
 # Zensar Content Studio
 
-Offline enterprise tool that turns documents (PDF, DOCX, PPTX, TXT, Markdown, HTML) into
-**on-brand PowerPoint decks, individual visuals, narrated MP4 videos and PDFs**, with a
-source reference for every statement.
+Offline enterprise tool that turns documents (PDF, DOCX, PPTX, TXT, Markdown, HTML), **demo videos**
+and **code repositories** (zip upload or GitHub URL) into **on-brand PowerPoint decks, individual
+visuals, motion-graphics MP4 videos and PDFs**, with a source reference for every statement.
 
 Everything runs on the local machine: no cloud APIs, no telemetry. After a one-time setup
 the application works with the network disconnected.
@@ -26,6 +26,7 @@ On a new PC the first run needs internet and takes roughly 5–15 minutes. It in
 | Model | downloads the ONNX embedding model (~90 MB, no torch needed) |
 | Interface | installs Node.js LTS via `winget` if needed, then builds the UI |
 | Local AI (optional, asks) | installs Ollama and the `qwen2.5:3b` model (~2 GB) and selects it automatically |
+| Video understanding (optional, asks) | downloads the `qwen2.5vl:3b` vision model (~3.2 GB) used to read demo videos frame by frame |
 | Launch | runs the system check, starts the server and opens **http://localhost:8000** |
 
 Later runs start in seconds and work fully offline. Close the minimised "Zensar Content Studio"
@@ -175,14 +176,59 @@ Additional brands (e.g. for other business units) can be created without touchin
 
 ## Using the application
 
-* **New project**: upload → brand → instruction (a live panel shows how it will be interpreted) → outputs (PPTX, PDF, visuals, video; voice, speed, subtitles) → generate.
-* **Generation screen**: live progress for each real pipeline stage. Nothing is simulated.
-* **Presentation**: preview, slide navigation, **Present** (full screen; ← → Space, `N` for notes, Esc), download PPTX/PDF.
-* **Per slide**: *Edit content* (title, points, steps, KPIs, narration, layout, brand accent), *Regenerate* (only that slide, with optional guidance), *Change layout*, *View sources*. Edits keep their source links, are re-checked, and show "Edited · not in source" if they add unsupported facts.
-* **Images**: gallery, full-screen lightbox, PNG/JPG/SVG per visual, download all as ZIP.
-* **Video**: play, pause, seek, volume, full screen, subtitles (CC), download MP4, regenerate video.
-* **Sources / Content plan / Files**: claim-level traceability, the canonical JSON, and every output file.
-* **Projects**: reopen, rename, delete, regenerate everything, re-render only, or regenerate the video only.
+* **New project**
+  1. **Sources.** Add as many as you like: documents, demo videos (.mp4 .mov .webm .mkv) and zipped repositories, or import a **GitHub URL**.
+     For private repositories, a token is used for that one download and is never stored.
+  2. **Brand & template.** Pick a design preset (Corporate, Bold, Minimal, Midnight, Tech) or an uploaded PowerPoint template, with live previews.
+  3. **Instruction.** A live panel shows how it will be interpreted.
+  4. **Outputs & video.**
+     * Narration: an offline voice, **your own recording**, or none.
+     * An optional **script** (typed, or imported from .txt/.md/.docx/.srt/.vtt).
+     * **Background music.**
+     * Extra **images and video clips**.
+     * Transitions, slide animation, and an animated brand intro and closing card.
+  5. **Generate.**
+* **Demo videos.**
+  * Scenes are detected automatically, and one keyframe per scene is read by the local vision model.
+  * Each scene gets a narration timed to it. Numbers not visible on screen are dropped.
+  * The demo is placed in the video after the explanatory slides.
+  * The demo also feeds the slides: a walkthrough/workflow slide, screenshots, and the overview.
+* **Repositories.**
+  * README, technology stack (from the manifests), components and API endpoints.
+  * An **architecture diagram** built from the real import graph.
+  * A **workflow/pipeline** traced from the entry points.
+* **Presentation**
+  * Preview and slide navigation.
+  * **Present**: full screen; ← → Space, `N` for notes, Esc.
+  * Download PPTX/PDF.
+* **Per slide**
+  * *Edit content*: title, points, steps, KPIs, narration, layout, brand accent. Edits keep their source links, are re-checked, and show "Edited · not in source" if they add unsupported facts.
+  * *Regenerate*: only that slide, with optional guidance.
+  * *Change layout* and *View sources*.
+* **Video editor** (project → *Video editor*)
+  * A timeline of all clips (drag to reorder), with **add images, video clips, slides, intro or closing card**.
+  * Per clip:
+    * **trim** (sliders or "set at playhead")
+    * **crop** (drag the box, or 16:9 / 4:3 / 1:1 / 9:16)
+    * **speed** (0.25×–4×)
+    * transition, slow zoom, original sound on/off and volume
+    * narration text, or **your own recording for that clip**
+  * The live preview plays exactly the trimmed range at the chosen speed with the crop applied.
+  * Narration panel: voice, speed, whole-video recording, script with `## Slide N` markers.
+  * Music panel: volume, ducking under narration, fades.
+  * **Render preview** (fast, 960×540) or **Render final video**. Unchanged clips are reused from cache, so re-renders take seconds.
+  * Clicking a clip jumps to it in the rendered video.
+* **Templates / Media Library.** Browse presets and upload .pptx templates; manage images, videos and audio.
+* **Images.** Gallery, full-screen lightbox, PNG/JPG/SVG per visual, download all as ZIP.
+* **Sources / Content plan / Files.** Claim-level traceability, the canonical JSON, and every output file.
+* **Projects.** Reopen, rename, delete, regenerate everything, re-render only, or regenerate the video only.
+
+**Motion graphics.** Slides are animated layer by layer:
+* Titles and bullets build in; diagrams build node by node; numbers count up; charts grow.
+* The brand intro assembles the circle → square → triangle motif into the wordmark.
+* Transitions include a Zensar grid-tile transition.
+
+Only one feature goes online: **GitHub import**. It is an explicit action, and only `github.com` / `codeload.github.com` are allowed for it.
 
 ---
 

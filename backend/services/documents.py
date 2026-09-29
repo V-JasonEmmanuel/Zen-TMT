@@ -50,6 +50,45 @@ def store_upload(db: Database, filename: str, data: bytes) -> dict[str, Any]:
     return db.get_document(did)  # type: ignore[return-value]
 
 
+HEAVY_FORMATS = {"mp4", "mov", "webm", "mkv", "avi", "m4v", "zip"}  # analysed in the generation job, not at upload
+LARGE_LIMIT_MB = 2048
+
+
+def store_upload_file(db: Database, filename: str, src: Path, move: bool = True) -> dict[str, Any]:
+    """Register a large upload already streamed to disk (videos, repository archives)."""
+    import shutil
+
+    s = get_settings()
+    name = sanitize_filename(filename, default="source")
+    ext = Path(name).suffix.lower()
+    if ext not in supported_extensions():
+        raise DocumentError(f"Unsupported file type '{ext or '?'}'. Supported: {', '.join(supported_extensions())}")
+    size = src.stat().st_size
+    limit = LARGE_LIMIT_MB if ext.lstrip(".") in HEAVY_FORMATS else s.max_upload_mb
+    if size > limit * 1024 * 1024:
+        raise DocumentError(f"The file is larger than the {limit} MB limit.")
+    if size == 0:
+        raise DocumentError("The file is empty.")
+    did = new_id("doc_")
+    d = doc_dir(did)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"original{ext}"
+    (shutil.move if move else shutil.copyfile)(str(src), str(path))
+    sha = sha256_file(path)
+    meta: dict[str, Any] = {}
+    if ext.lstrip(".") in ("mp4", "mov", "webm", "mkv", "avi", "m4v"):
+        from backend.media.library import MediaLibrary
+
+        asset = MediaLibrary().add_path(path, name, "document", move=False, description=f"Source video: {name}",
+                                        tags=["source", "video"])
+        meta["media_asset_id"] = asset.id
+        meta["duration"] = asset.meta.get("duration", 0)
+    db.create_document({"id": did, "filename": name, "stored_path": str(path.relative_to(s.data_path)), "sha256": sha,
+                        "format": ext.lstrip("."), "size": size, "status": "uploaded", "meta": meta})
+    log.info("Document uploaded", document=did, format=ext, bytes=size)
+    return db.get_document(did)  # type: ignore[return-value]
+
+
 def process_document(db: Database, document_id: str, force: bool = False) -> tuple[ExtractedDocument, DocumentStructure, list[DocumentChunk]]:
     """Extract, analyse and chunk a document. Cached on disk + in SQLite; re-used on every later run."""
     row = db.get_document(document_id)
@@ -69,7 +108,7 @@ def process_document(db: Database, document_id: str, force: bool = False) -> tup
     try:
         doc = get_adapter(path).extract(path, document_id, d)
     except ExtractionError as exc:
-        db.update_document(document_id, status="failed", error=str(exc), meta={"ocr_may_help": exc.ocr_may_help})
+        db.update_document(document_id, status="failed", error=str(exc), meta={**(row.get("meta") or {}), "ocr_may_help": exc.ocr_may_help})
         raise DocumentError(str(exc), ocr_may_help=exc.ocr_may_help) from exc
     except Exception as exc:
         log.exception("Extraction crashed", document=document_id)
@@ -85,7 +124,11 @@ def process_document(db: Database, document_id: str, force: bool = False) -> tup
     db.replace_chunks(document_id, chunks)
     summary = structure_summary(doc, st, chunks)
     db.update_document(document_id, status="ready", page_count=doc.page_count, extraction_method=doc.extraction_method,
-                       error="", structure=summary, meta={"warnings": doc.warnings, "title": doc.title})
+                       error="", structure=summary,
+                       meta={**(row.get("meta") or {}), "warnings": doc.warnings, "title": doc.title,
+                             **({"scenes": len(doc.metadata.get("scenes", [])), "vision_model": doc.metadata.get("vision_model", "")}
+                                if doc.format == "video" else {}),
+                             **({"repository": doc.metadata.get("repository", "")} if doc.format == "repository" else {})})
     log.info("Document processed", document=document_id, pages=doc.page_count, sections=len(st.sections), chunks=len(chunks))
     return doc, st, chunks
 

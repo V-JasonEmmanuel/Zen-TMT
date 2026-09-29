@@ -2,7 +2,8 @@ import { ArrowLeft, Download, FileJson, Film, Image as ImageIcon, Link2, MoreHor
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { JobProgress } from "../components/JobProgress";
-import { ImagesPanel, PlanPanel, PresentationPanel, RegenerateDialog, SourcesPanel, VideoPanel } from "../components/OutputPanels";
+import { ImagesPanel, PlanPanel, PresentationPanel, RegenerateDialog, SourcesPanel } from "../components/OutputPanels";
+import { VideoEditor } from "../components/VideoEditor";
 import { Presenter } from "../components/Presenter";
 import { SlideEditor } from "../components/SlideEditor";
 import { Alert, Badge, Button, Card, EmptyState, Spinner, Tabs } from "../components/ui";
@@ -73,7 +74,7 @@ export function ProjectDetail() {
               <h1 className="truncate text-2xl font-semibold tracking-tight">{p.name}</h1>
               <StatusBadge p={{ ...p, last_job: job ?? p.last_job }} />
             </div>
-            <p className="mt-1 text-sm text-slate-500">{p.document?.filename} · brand: {p.brand_id} · updated {timeAgo(p.updated_at)}</p>
+            <p className="mt-1 text-sm text-slate-500">{(p.sources?.length ? p.sources.map((x) => x.filename).join(", ") : p.document?.filename)} · brand: {p.brand_id} · updated {timeAgo(p.updated_at)}</p>
           </div>
           <div className="relative flex items-center gap-2">
             {plan && <Button icon={<PresIcon className="h-4 w-4" />} onClick={() => setPresenting(0)} disabled={!slideImages.length}>Present</Button>}
@@ -116,7 +117,7 @@ export function ProjectDetail() {
           <Tabs<Tab> value={tab} onChange={setTab} tabs={[
             { id: "presentation", label: "Presentation", icon: <PresIcon className="h-4 w-4" /> },
             { id: "images", label: "Images", icon: <ImageIcon className="h-4 w-4" />, badge: <Badge>{outputs.filter((o) => o.kind === "image" && o.path.endsWith(".png")).length}</Badge> },
-            { id: "video", label: "Video", icon: <Film className="h-4 w-4" /> },
+            { id: "video", label: "Video editor", icon: <Film className="h-4 w-4" /> },
             { id: "sources", label: "Sources", icon: <Link2 className="h-4 w-4" /> },
             { id: "plan", label: "Content plan", icon: <FileJson className="h-4 w-4" /> },
             { id: "files", label: "Files", icon: <Download className="h-4 w-4" /> },
@@ -127,13 +128,7 @@ export function ProjectDetail() {
                 onEdit={setEditing} onRegenerate={setRegen} onSources={(s) => { setSourceFocus(s.slide_number); setTab("sources"); }} />
             )}
             {tab === "images" && <ImagesPanel project={p} outputs={outputs} version={version} />}
-            {tab === "video" && (
-              <VideoPanel project={p} outputs={outputs} version={version} busy={busy}
-                onGenerate={() => run(async () => {
-                  if (!p.output_formats.includes("mp4")) await api.updateProject(p.id, { output_formats: [...p.output_formats, "mp4"] });
-                  return api.generate(p.id, "video");
-                })} />
-            )}
+            {tab === "video" && <VideoEditor project={p} outputs={outputs} version={version} busy={busy} onJob={setJobId} />}
             {tab === "sources" && <SourcesPanel mapping={mapping} plan={plan} focus={sourceFocus} />}
             {tab === "plan" && <PlanPanel project={p} plan={plan} />}
             {tab === "files" && (
