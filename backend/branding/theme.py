@@ -98,6 +98,8 @@ class Theme:
     grid_module: str = "3x3"
     video_style: Optional[VideoStyle] = None
     font_substitutions: dict[str, str] = field(default_factory=dict)  # brand font -> font actually used everywhere
+    design: str = ""  # "experience" = Zensar LinkedIn design language (backend/branding/social.py)
+    section_label_roles: list[str] = field(default_factory=list)
 
     @property
     def motifs_on(self) -> bool:

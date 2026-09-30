@@ -35,7 +35,7 @@ class DOCXAdapter(DocumentAdapter):
         out = ExtractedDocument(document_id=document_id, filename=path.name, format="docx")
         cp = d.core_properties
         out.metadata = {k: v for k, v in {"title": cp.title, "author": cp.author, "subject": cp.subject}.items() if v}
-        chars, page, table_no = 0, 1, 0
+        chars, page, table_no, figure_no = 0, 1, 0, 0
         explicit_breaks = False
 
         body = d.element.body
@@ -47,6 +47,12 @@ class DOCXAdapter(DocumentAdapter):
                 if 'w:type="page"' in xml or "lastRenderedPageBreak" in xml:
                     explicit_breaks = True
                     page += xml.count('w:type="page"') + xml.count("lastRenderedPageBreak")
+                for rid in child.xpath(".//a:blip/@r:embed"):  # embedded pictures (diagrams, screenshots)
+                    fig = self._figure(d, rid, work_dir, figure_no + 1)
+                    if fig:
+                        figure_no += 1
+                        out.blocks.append(Block(type=ContentType.figure, text=f"Figure {figure_no}", page=page,
+                                                figure_index=figure_no, image_path=fig))
                 text = clean_text(p.text)
                 if not text:
                     continue
@@ -82,6 +88,25 @@ class DOCXAdapter(DocumentAdapter):
         if not explicit_breaks:
             out.warnings.append("Page numbers for DOCX files are estimated.")
         return out
+
+    @staticmethod
+    def _figure(d, rid: str, work_dir: Path, n: int) -> str | None:
+        """Save an embedded image as figures/figure_NN.png (icons and tiny images are skipped)."""
+        import io
+
+        from PIL import Image
+
+        try:
+            blob = d.part.related_parts[rid].blob
+            with Image.open(io.BytesIO(blob)) as im:
+                if min(im.size) < 120 or n > 40:
+                    return None
+                rel = f"figures/figure_{n:02d}.png"
+                (work_dir / "figures").mkdir(parents=True, exist_ok=True)
+                im.convert("RGB").save(work_dir / rel)
+                return rel
+        except Exception:
+            return None
 
     @staticmethod
     def _classify(text: str, style: str, p, page: int) -> Block:

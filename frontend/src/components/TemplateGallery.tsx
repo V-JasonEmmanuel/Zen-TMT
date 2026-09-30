@@ -44,7 +44,7 @@ export function TemplateGallery({ brandId, value, onChange }: { brandId: string;
         className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 p-6 text-center transition ${value === "" ? "border-slate-900 ring-2 ring-slate-900/10" : "border-slate-200 hover:border-slate-400"}`}>
         <LayoutTemplate className="h-8 w-8 text-slate-400" />
         <span className="text-sm font-semibold">Brand default</span>
-        <span className="text-xs text-slate-500">The brand's own layout settings and template, if one is attached.</span>
+        <span className="text-xs text-slate-500">The brand's own settings. For Zensar this is the Zensar Experience look.</span>
       </button>
       {(gallery.data ?? []).map((t) => <TemplateCard key={t.id} t={t} selected={value === t.id} onSelect={() => onChange(t.id)} />)}
     </div>

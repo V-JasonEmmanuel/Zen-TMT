@@ -142,6 +142,10 @@ def section_tag(t: Theme, text: str, right: float, y: float) -> list:
 def corner_motif(t: Theme, size: float = 0.9) -> list[Shape]:
     """Small 2x2 cluster anchored to the bottom-right corner of a content slide."""
     region = (t.slide_w - size, t.slide_h - size, size, size)
+    if getattr(t, "design", "") == "experience":
+        from backend.rendering.experience import cluster
+
+        return cluster(t, region)
     return ZensarModule(t, region, "corner", cols=2)
 
 

@@ -77,7 +77,7 @@ export function NewProject() {
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [brandId, setBrandId] = useState("zensar");
-  const [templateId, setTemplateId] = useState<string>("");
+  const [templateId, setTemplateId] = useState<string>("preset:zensar_experience");
   const [instruction, setInstruction] = useState("");
   const [name, setName] = useState("");
   const [formats, setFormats] = useState<string[]>(["pptx", "pdf", "png"]);
@@ -219,7 +219,7 @@ export function NewProject() {
           <Card title="Brand">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {(brands.data ?? []).map((b) => (
-                <button key={b.id} onClick={() => { setBrandId(b.id); setTemplateId(""); }}
+                <button key={b.id} onClick={() => { setBrandId(b.id); setTemplateId(b.id === "zensar" ? "preset:zensar_experience" : ""); }}
                   className={`rounded-xl border-2 p-4 text-left transition ${brandId === b.id ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-300"}`}>
                   <div className="flex items-center justify-between">
                     <span className="font-semibold">{b.name}</span>

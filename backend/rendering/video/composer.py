@@ -30,7 +30,7 @@ from backend.schemas import ContentPlan
 from backend.utils.logging import get_logger
 
 log = get_logger(__name__)
-ENGINE_VERSION = "composer-3"
+ENGINE_VERSION = "composer-6"
 LEAD, TAIL = 0.4, 0.8
 
 
@@ -189,6 +189,21 @@ class Composer:
         total_frames = max(1, int(round(dur * fps)))
         tr = c.transition if prev is not None else "none"
         n_tr = int(round(TRANSITION_SECONDS.get(tr, 0.0) * fps))
+        if c.type in ("intro", "outro") and getattr(self.theme, "design", "") == "experience":
+            from backend.rendering.experience import brand_card
+
+            scene = brand_card(self.theme, c.type)
+            fw = FrameWriter(self.ff, out, W, H, fps, self.quality)
+            gen = slide_frames(scene, self.theme, W, fps, "subtle", tr if c.type == "outro" else "none", prev)
+            final = None
+            try:
+                while True:
+                    fw.write(next(gen))
+            except StopIteration as stop:
+                final = stop.value
+            fw.write(final, total_frames - fw.n)
+            fw.close()
+            return final
         if c.type in ("intro", "outro"):
             fw = FrameWriter(self.ff, out, W, H, fps, self.quality)
             logo = str(self.theme.logo_path) if self.theme.logo_path else None

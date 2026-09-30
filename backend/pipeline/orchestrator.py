@@ -94,7 +94,11 @@ def apply_template(theme: Theme, project: dict) -> Theme:
     """Project template: a design preset ("preset:<id>") or an uploaded PPTX template ("<template id>")."""
     from backend.branding.presets import apply_preset
 
+    from backend.branding.presets import DEFAULT_PRESET
+
     tid = (project.get("options") or {}).get("template_id") or project.get("template_id") or ""
+    if not tid and theme.brand_id == "zensar":
+        tid = f"preset:{DEFAULT_PRESET}"  # Zensar's current (LinkedIn) design language unless another template is chosen
     if tid.startswith("preset:"):
         return apply_preset(theme, tid.split(":", 1)[1])
     if tid:

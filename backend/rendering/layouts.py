@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Optional
 
+from backend.branding.social import is_experience
 from backend.branding.theme import Theme
 from backend.rendering import components as C
 from backend.rendering.scene import Para, Picture, Scene, Shape
@@ -68,6 +69,10 @@ def _speaker_notes(slide: Slide) -> str:
 
 # ------------------------------------------------------------------ layouts
 def lay_cover(scene: Scene, t: Theme, s: Slide, ctx: RenderContext, divider: bool = False) -> None:
+    if is_experience(t):
+        from backend.rendering import experience
+
+        return experience.cover(scene, t, s, ctx, divider)
     if t.motifs_on and t.cover_style != "template":
         return _zensar_cover(scene, t, s, ctx, divider)
     dark = t.cover_style == "solid_primary"
@@ -162,7 +167,12 @@ def _std(scene: Scene, t: Theme, s: Slide, ctx: RenderContext) -> tuple[float, f
     C.add_background(scene, t)
     if s.background_role:
         scene.background = t.c(s.background_role)
-    top = C.title_block(scene, t, s.title, s.subtitle)
+    if is_experience(t):
+        from backend.rendering import experience
+
+        top = experience.title_block(scene, t, s.title, s.subtitle, _tag(s))
+    else:
+        top = C.title_block(scene, t, s.title, s.subtitle)
     C.chrome(scene, t, s.slide_number, ctx.total, s.sources, tag=_tag(s), extra_refs_line=ctx.image_credit(s))
     return C.content_region(t, top)
 
@@ -180,9 +190,18 @@ def lay_key_findings(scene, t, s, ctx):
 def lay_conclusion(scene, t, s, ctx):
     x, y, w, h = _std(scene, t, s, ctx)
     pw = w * 0.34
-    scene.add(C.card(t, x, y, pw, h, fill_role="primary", name="conclusion_panel"))
-    scene.add(C.text(t, x + 0.35, y + 0.35, pw - 0.7, h - 0.7, "Key takeaways", role="on_primary", size=t.sizes["title"],
-                     font="heading", bold=True, valign="middle", min_size=14, name="panel_label"))
+    if is_experience(t):
+        scene.add(Shape("rect", x, y, pw, h, fill=t.c("li_indigo"), name="conclusion_panel", anim="panel"))
+        scene.add(Shape("rect", x + 0.35, y + h / 2 - 0.4, pw - 0.7, 0.8, fill=t.c("li_highlight"), name="highlight", anim="panel"))
+        scene.add(C.text(t, x + 0.45, y + h / 2 - 0.4, pw - 0.9, 0.8, "Key takeaways", role="text_primary", size=t.sizes["title"],
+                         font="heading", bold=True, valign="middle", min_size=14, name="panel_label"))
+        from backend.rendering.experience import cluster
+
+        scene.add(*cluster(t, (x + pw - 0.9, y + h - 0.9, 0.9, 0.9)))
+    else:
+        scene.add(C.card(t, x, y, pw, h, fill_role="primary", name="conclusion_panel"))
+        scene.add(C.text(t, x + 0.35, y + 0.35, pw - 0.7, h - 0.7, "Key takeaways", role="on_primary", size=t.sizes["title"],
+                         font="heading", bold=True, valign="middle", min_size=14, name="panel_label"))
     scene.add(C.bullets(t, (x + pw + t.gutter + 0.1, y + 0.1, w - pw - t.gutter - 0.1, h - 0.1), s.key_points,
                         size=t.sizes["body"] + 2))
 
@@ -297,8 +316,14 @@ def lay_kpi(scene, t, s, ctx):
         # full-bleed brand panel with large white numerals (as in Zensar's report KPI pages)
         from backend.rendering.motifs import ZensarModule
 
-        scene.add(Shape("rect", 0, y - 0.15, t.slide_w, kh + 0.3, fill=t.c("primary"), name="kpi_panel", anim="panel"))
-        scene.add(*ZensarModule(t, (t.slide_w - 0.9, y - 0.15, 0.9, 0.9), "panel", cols=2))
+        scene.add(Shape("rect", 0, y - 0.15, t.slide_w, kh + 0.3, fill=t.c("li_indigo" if is_experience(t) else "primary"),
+                        name="kpi_panel", anim="panel"))
+        if is_experience(t):
+            from backend.rendering.experience import cluster
+
+            scene.add(*cluster(t, (t.slide_w - 1.0, y + kh + 0.15 - 1.0, 1.0, 1.0)))
+        else:
+            scene.add(*ZensarModule(t, (t.slide_w - 0.9, y - 0.15, 0.9, 0.9), "panel", cols=2))
         scene.add(*C.kpi_cards(t, (x, y, w - 0.8, kh), s.kpis, on_panel=True))
     else:
         scene.add(*C.kpi_cards(t, (x, y, w, kh), s.kpis))
@@ -354,7 +379,10 @@ def lay_quote(scene, t, s, ctx):
     x, y, w, h = _std(scene, t, s, ctx)
     if not s.quote:
         return
-    scene.add(C.text(t, x, y - 0.2, 1.2, 1.3, "“", role="accent", size=96, font="heading", bold=True, min_size=40, name="quote_mark"))
+    exp = is_experience(t)
+    if exp:
+        scene.background = t.c("li_lavender")
+    scene.add(C.text(t, x, y - 0.2, 1.2, 1.3, "“", role="li_lavender_mark" if exp else "accent", size=96, font="heading", bold=True, min_size=40, name="quote_mark"))
     scene.add(C.text(t, x + 1.0, y + 0.2, w - 2.0, h * 0.65, s.quote.text, role="text_primary", size=28, font="heading",
                      italic=True, valign="middle", min_size=16, name="quote"))
     if s.sources:
@@ -391,6 +419,7 @@ def build_slide_scene(slide: Slide, theme: Theme, ctx: RenderContext) -> Scene:
     if slide.accent_role in ("primary", "secondary") and slide.accent_role != theme.accent_bar_role:
         # per-slide accent override chosen in review - always a brand colour role, never a raw colour
         theme = replace(theme, accent_bar_role=slide.accent_role, bullet_color_role=slide.accent_role)
+    slide = renderable(slide)
     scene = Scene(theme.slide_w, theme.slide_h, theme.c("background"), name=f"slide_{slide.slide_number:02d}")
     ctx.theme = theme
     LAYOUT_FUNCS.get(slide.layout, lay_key_findings)(scene, theme, slide, ctx)
@@ -402,6 +431,28 @@ def build_slide_scene(slide: Slide, theme: Theme, ctx: RenderContext) -> Scene:
             el.anim = f"build:{i}"
     scene.notes = _speaker_notes(slide)
     return scene
+
+
+def renderable(slide: Slide) -> Slide:
+    """A slide is never drawn empty: re-flow its content into a layout that can show it, else use the
+    narration as points, else show it as a statement slide (title on the brand field)."""
+    from backend.planning.slide_planner import apply_fallback, has_content
+    from backend.schemas import Claim
+
+    if has_content(slide):
+        return slide
+    s = apply_fallback(slide.model_copy(deep=True))
+    if s.key_points:
+        return s
+    from backend.intelligence.chunking import split_sentences
+
+    said = [x for x in split_sentences(slide.narration or "") if len(x.split()) >= 3][:4]
+    if said:
+        s.key_points = [Claim(text=x, status="structural") for x in said]
+        s.layout = "key_findings"
+        return s
+    s.layout = "section_divider"
+    return s
 
 
 def custom_shape_elements(slide: Slide, t: Theme) -> tuple[list, list]:
@@ -463,11 +514,18 @@ def build_visual_scene(slide: Slide, theme: Theme, ctx: RenderContext) -> Option
     W, H = VISUAL_W * t.slide_w / 13.333, VISUAL_H * t.slide_h / 7.5
     scene = Scene(W, H, t.c("background"), name=f"visual_{slide.slide_number:02d}")
     mx = t.margin_x
-    scene.add(C.text(t, mx, 0.4, W - 2 * mx, 0.8, slide.title, role=t.title_color_role, size=t.sizes["title"],
-                     font="heading", bold=t.heading_bold, valign="bottom", min_size=16, name="title"))
-    if t.accent_bar:
-        scene.add(Shape("rect", mx, 1.3, 0.8, 0.055, fill=t.c(t.accent_bar_role), name="accent_bar"))
-    region = (mx, 1.65, W - 2 * mx, H - 1.65 - 0.75)
+    if is_experience(t):
+        from backend.rendering import experience
+
+        top = experience.title_block(scene, t, slide.title, "", _tag(slide))
+        scene.add(*experience.cluster(t, (W - 0.8, H - 0.8, 0.8, 0.8)))
+        region = (mx, top, W - 2 * mx, H - top - 0.75)
+    else:
+        scene.add(C.text(t, mx, 0.4, W - 2 * mx, 0.8, slide.title, role=t.title_color_role, size=t.sizes["title"],
+                         font="heading", bold=t.heading_bold, valign="bottom", min_size=16, name="title"))
+        if t.accent_bar:
+            scene.add(Shape("rect", mx, 1.3, 0.8, 0.055, fill=t.c(t.accent_bar_role), name="accent_bar"))
+        region = (mx, 1.65, W - 2 * mx, H - 1.65 - 0.75)
     x, y, w, h = region
     if kind == "chart" and slide.chart:
         scene.add(C.chart_element(t, region, slide.chart))
@@ -493,11 +551,17 @@ def build_visual_scene(slide: Slide, theme: Theme, ctx: RenderContext) -> Option
     else:
         return None
     if slide.sources:
-        scene.add(C.text(t, mx, H - 0.55, W - 2 * mx - 1.8, 0.35, C.source_line(slide.sources), role="text_secondary",
+        scene.add(C.text(t, mx, H - 0.55, W - 2 * mx - (4.2 if is_experience(t) else 1.8), 0.35, C.source_line(slide.sources), role="text_secondary",
                          size=t.sizes["caption"], font="caption", min_size=7, name="sources"))
     lg = C.logo_element(t)
     if lg:
-        lg.x, lg.y = W - mx - lg.w, H - 0.2 - lg.h
+        if is_experience(t):  # wordmark top-right, "An RPG Company" bottom-left (as on the posts)
+            lg.x, lg.y = W - mx - lg.w, t.margin_y
+            if t.footer_text:
+                scene.add(C.text(t, W - mx - 3.0 - 0.9, H - 0.5, 3.0, 0.3, t.footer_text, role="text_secondary",
+                                 size=t.sizes["caption"], font="caption", align="right", min_size=7, name="footer_brand"))
+        else:
+            lg.x, lg.y = W - mx - lg.w, H - 0.2 - lg.h
         scene.add(lg)
     return scene
 

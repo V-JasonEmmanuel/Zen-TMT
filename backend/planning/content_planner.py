@@ -196,6 +196,18 @@ def build_outline(ctx: PlanningContext) -> tuple[list[Slot], list[str]]:
     return slots, warnings
 
 
+def prune_empty(slides: list[Slide]) -> list[Slide]:
+    """Never leave a blank slide in the deck: drop slides with nothing verifiable to show, renumber."""
+    from backend.planning.slide_planner import has_content
+
+    kept = [s for s in slides if s.layout in ("cover", "section_divider", "references") or has_content(s)]
+    if len(kept) != len(slides):
+        log.info("Empty slides removed", removed=len(slides) - len(kept))
+    for i, s in enumerate(kept, start=1):
+        s.slide_number = i
+    return kept
+
+
 def dedupe_titles(slides: list[Slide]) -> None:
     """Two slides must not share a title (e.g. 'Overview' twice): retitle the later one from its content."""
     seen: set[str] = set()
@@ -512,6 +524,7 @@ class ContentPlanner:
             slides.append(self.write_slide(slide, slot.table_chunk))
             if on_progress:
                 on_progress(i, len(slots))
+        slides = prune_empty(slides)
         self.finalize_references(slides)
         dedupe_titles(slides)
         plan = ContentPlan(title=self.ctx.doc_title, subtitle=self.subtitle(), contract=self.ctx.contract, slides=slides,

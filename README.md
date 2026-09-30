@@ -133,6 +133,31 @@ under **View sources** and the **Sources** tab.
 
 ---
 
+## Try it: showcase samples
+
+`samples/` contains a fictional case study, **InvoiceFlow**, that exercises every feature:
+* a Word document with an architecture figure, a workflow, tables that become charts and KPIs, a comparison and a quote
+* a demo screen recording, a narration script, background music and an extra image
+
+With the app running, `python samplesun_showcase.py` builds the full project in one go.
+See [samples/README.md](samples/README.md) for the step-by-step tour.
+
+## Design language: Zensar Experience (default)
+
+Decks, visuals and videos use the look of **Zensar Technologies' LinkedIn posts** by default:
+* Full-bleed fluid-gradient covers (blue-violet → plum → coral) and glowing data-wave dividers and outros.
+* A light lead line above a bold white headline.
+* The white wordmark top-right and *An RPG Company* in the footer.
+* Pastel section labels, and the corner shapes (sage quarter-circle; mustard quarter-circle, teal triangle, navy square).
+* Lavender quote slides, mustard highlight boxes and a coral call-to-action pill.
+
+Every colour was sampled from the published post images, not guessed. The values and the post links are in `brands/zensar/social.json`. The official tokens (`#10005D`, `#3A57A7`, `#F04E45`, `#00B0C0`) are unchanged. The other presets (Corporate, Bold, Minimal, Midnight, Tech) remain available in the template gallery.
+
+**No blank slides.**
+* The planner drops any slide left without verifiable content and renumbers the deck.
+* The renderer never draws an empty layout: it re-flows the content, uses the slide narration, or shows a designed statement slide.
+* Tests check every layout.
+
 ## Brand system: the references are the source of truth
 
 Brand profiles live in `brands/<id>/`:

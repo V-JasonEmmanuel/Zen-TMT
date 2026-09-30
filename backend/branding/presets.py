@@ -11,9 +11,15 @@ from typing import Any, Optional
 
 from backend.branding.theme import Theme
 
+DEFAULT_PRESET = "zensar_experience"
 PRESETS: dict[str, dict[str, Any]] = {
+    "zensar_experience": {
+        "name": "Zensar Experience", "description": "The look of Zensar's LinkedIn posts: fluid gradient and data-wave covers, "
+        "pastel section labels, sage/mustard/teal corner shapes, wordmark top-right. The default.",
+        "social": True, "shapes": {"density": "subtle"},
+    },
     "zensar_corporate": {
-        "name": "Zensar Corporate", "description": "White pages, wordmark top-left, section tags and a quiet Z-motif corner. The default.",
+        "name": "Zensar Corporate", "description": "White pages, wordmark top-left, section tags and a quiet Z-motif corner (annual-report style).",
         "theme": {},
     },
     "zensar_bold": {
@@ -48,6 +54,10 @@ def apply_preset(theme: Theme, preset_id: Optional[str]) -> Theme:
         setattr(t, k, v)
     if spec.get("shapes") and t.shapes is not None:
         t.shapes = t.shapes.model_copy(update=spec["shapes"])
+    if spec.get("social"):
+        from backend.branding.social import apply_social
+
+        t = apply_social(t)
     if spec.get("dark"):
         c = t.colors
         dark_bg = c["primary"]

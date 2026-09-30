@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw
 
 from backend.branding.theme import Theme, hex_to_rgb
 from backend.rendering.images.raster import RasterRenderer
-from backend.rendering.scene import Chart, Picture, Scene, Shape, TextBox
+from backend.rendering.scene import Chart, Line, Picture, Scene, Shape, TextBox
 
 NUM = re.compile(r"^([^\d-]*)(-?\d[\d,]*\.?\d*)(.*)$")
 
@@ -127,11 +127,17 @@ def build_layers(scene: Scene, width_px: int, motion: str = "subtle") -> tuple[I
         full = rr.render(scene).convert("RGB")
         return full, [], 0.0
     layers: list[Layer] = []
-    motif_i = content_i = 0
+    motif_i = 0
+    # build slots: connectors (drawn under the boxes) animate after the boxes they join, never before
+    content = [i for i, (k, _) in enumerate(groups) if k in ("content", "chart", "image") or k.startswith("kpi")]
+    is_line = {i: all(isinstance(e, Line) for e in groups[i][1]) for i in content}
+    order = [i for i in content if not is_line[i]] + [i for i in content if is_line[i]]
+    slot = {gi: n for n, gi in enumerate(order)}
     n_content = sum(1 for k, _ in groups if k == "content" or k.startswith("kpi"))
     stagger = 0.18 if n_content <= 8 else max(0.06, 1.4 / n_content)
     t_content = 0.65
-    for kind, els in groups:
+    for gi, (kind, els) in enumerate(groups):
+        content_i = slot.get(gi, 0)
         r = rr.render_layer(scene, els)
         if not r:
             continue
@@ -146,10 +152,8 @@ def build_layers(scene: Scene, width_px: int, motion: str = "subtle") -> tuple[I
         elif kind == "chart":
             layers.append(Layer(img, x, y, "chart_h" if (els[0].data.chart_type == "bar") else "chart_v",
                                 t_content + content_i * stagger, 1.0))
-            content_i += 1
         elif kind == "image":
             layers.append(Layer(img, x, y, "image", t_content + content_i * stagger, 0.6))
-            content_i += 1
         elif kind.startswith("kpi"):
             start = t_content + content_i * stagger
             value = next((e for e in els if isinstance(e, TextBox) and e.name == "kpi_value"), None)
@@ -165,10 +169,8 @@ def build_layers(scene: Scene, width_px: int, motion: str = "subtle") -> tuple[I
                     lay.frames = [s[0] for s in steps]
                     lay.x_list = [s[1] for s in steps]  # type: ignore[attr-defined]
                     layers.append(lay)
-            content_i += 1
         else:
             layers.append(Layer(img, x, y, "content", t_content + content_i * stagger, 0.45))
-            content_i += 1
     t_build = max((l.start + l.dur for l in layers), default=0.0)
     return base, layers, t_build
 
@@ -220,6 +222,8 @@ def compose(base: Image.Image, layers: list[Layer], t: float, scale_px: float) -
 # ------------------------------------------------------------------ transitions
 def _tile_colors(theme: Theme) -> list[tuple[int, int, int]]:
     roles = ["primary", "secondary", "tint_0", "primary", "accent", "secondary", "tint_1"]
+    if getattr(theme, "design", "") == "experience":  # the LinkedIn palette: indigo, mustard, teal, sage, navy, lavender
+        roles = ["li_indigo", "li_mustard", "li_navy", "li_teal", "li_indigo", "li_sage", "li_lavender"]
     return [hex_to_rgb(theme.c(r)) for r in roles]
 
 
@@ -280,12 +284,14 @@ def slide_frames(scene: Scene, theme: Theme, width_px: int, fps: int, motion: st
     scale_px = width_px / 1920
     final = compose(base, layers, t_build + 1, scale_px) if layers else base
     n_trans = int(round(tt * fps))
-    first = compose(base, layers, 0.0, scale_px)
+    # the build starts under the transition, so the incoming slide is never revealed as an empty page
     for i in range(n_trans):
-        yield transition_frame(transition, prev, first, (i + 1) / n_trans, theme)
-    n_build = int(math.ceil(t_build * fps))
+        p = (i + 1) / n_trans
+        yield transition_frame(transition, prev, compose(base, layers, p * tt, scale_px), p, theme)
+    t0 = tt if n_trans else 0.0
+    n_build = int(math.ceil(max(0.0, t_build - t0) * fps))
     for i in range(n_build):
-        yield compose(base, layers, (i + 1) / fps, scale_px)
+        yield compose(base, layers, t0 + (i + 1) / fps, scale_px)
     return final
 
 

@@ -94,8 +94,10 @@ def test_template_presets_change_the_theme():
     ensure_default_brands()
     base = build_theme(BrandStore().load("zensar"))
     looks = {pid: vars(apply_preset(base.model_copy(deep=True) if hasattr(base, "model_copy") else base, pid)).copy() for pid in PRESETS}
-    assert len(PRESETS) == 5
-    assert len({str(sorted((k, str(v)) for k, v in l.items())) for l in looks.values()}) == 5  # every preset is distinct
+    assert len(PRESETS) == 6
+    # the Experience preset needs the brand's social.json (absent in this empty test brand), the others must differ
+    others = [l for pid, l in looks.items() if pid != "zensar_experience"]
+    assert len({str(sorted((k, str(v)) for k, v in l.items())) for l in others}) == 5
 
 
 def test_narration_keeps_whole_sentences():

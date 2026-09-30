@@ -112,7 +112,7 @@ def has_content(slide: Slide) -> bool:
     if lay == "architecture":
         return bool(slide.visual and slide.visual.nodes) or bool(slide.key_points)
     if lay in ("text_image", "image_text"):
-        return bool(slide.key_points)
+        return bool(slide.key_points) or bool(slide.image) or bool(slide.visual and (slide.visual.nodes or slide.visual.image_path))
     return bool(slide.key_points)
 
 

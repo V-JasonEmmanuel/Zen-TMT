@@ -146,8 +146,14 @@ def attach_visual(slide: Slide, chunks: dict[str, DocumentChunk], llm: Optional[
     elif lay == "architecture":
         if not (slide.visual and slide.visual.nodes) and graphs:
             # code repositories carry a dependency graph measured from real imports - prefer it
-            doc_ids = [chunks[c].document_id for c in slide.candidate_chunks if c in chunks]
-            g = next((graphs[d] for d in doc_ids if d in graphs and graphs[d].get("nodes")), None)
+            # ...but only when the slide is about the repository: the document most of its written statements
+            # come from (with several sources, a document's architecture must not get the code's diagram)
+            from collections import Counter
+
+            used = [s for p in slide.key_points for s in p.sources] or list(slide.candidate_chunks)
+            docs = Counter(chunks[c].document_id for c in used if c in chunks)
+            main = docs.most_common(1)[0][0] if docs else None
+            g = graphs.get(main) if main in graphs and graphs[main].get("nodes") else None
             if g and len(g["nodes"]) >= 2:
                 slide.visual = Visual(kind="architecture", nodes=[GraphNode(**n) for n in g["nodes"]],
                                       edges=[GraphEdge(**e) for e in g["edges"]],

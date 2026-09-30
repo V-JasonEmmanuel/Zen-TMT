@@ -1,0 +1,40 @@
+{
+  "name": "Zensar Experience (LinkedIn design language)",
+  "description": "Design language observed on Zensar Technologies' LinkedIn posts (2026): full-bleed deep-indigo or fluid blue-violet-to-coral backgrounds, white wordmark top-right, 'An RPG Company' in the footer, a light-weight lead line followed by a bold key line, pastel section label bars, and the circle/square/triangle motif as corner clusters (sage quarter-circle top-left; mustard quarter-circle, teal triangle and navy square bottom-right).",
+  "method": "Every colour below was sampled (7x7 median) from the published post images; nothing is invented. The navy overlay matches the FY25 annual-report print indigo (#211B5A), which cross-checks the sampling.",
+  "sources": [
+    "https://www.linkedin.com/posts/zensar_fy26-q4fy26-financialresults-activity-7457763472702078976-cqW2",
+    "https://www.linkedin.com/posts/zensar_happynewyear-newyear2026-experienceledeverything-activity-7412207705140162560-5xFN",
+    "https://www.linkedin.com/pulse/august-2026-highlights-driving-innovation-strengthening-partnerships-axqhf"
+  ],
+  "colors": {
+    "li_indigo": {"hex": "#211D4F", "where": "Monthly Digest cover - indigo photo overlay"},
+    "li_navy": {"hex": "#242152", "where": "Monthly Digest cover - navy square module"},
+    "li_night": {"hex": "#100338", "where": "'Quality Intelligence' launch card - background"},
+    "li_sage": {"hex": "#9BB795", "where": "Monthly Digest cover - quarter circle, top-left"},
+    "li_mustard": {"hex": "#E3C473", "where": "Monthly Digest cover - quarter circle, bottom-right"},
+    "li_teal": {"hex": "#86C7C2", "where": "Monthly Digest cover - triangle, bottom-right"},
+    "li_highlight": {"hex": "#E6CE80", "where": "Manhattan Active WM card - text highlight box"},
+    "li_coral": {"hex": "#FC4C43", "where": "'Quality Intelligence' card - call-to-action button"},
+    "li_blue": {"hex": "#3274D2", "where": "TestMu Conf card - date pill"},
+    "li_lavender": {"hex": "#C5C2D7", "where": "Leader quote card - background"},
+    "li_lavender_mark": {"hex": "#B6B1D2", "where": "Partner quote card - quotation marks"},
+    "li_beige": {"hex": "#DECFB2", "where": "Retail quote card - background"},
+    "li_grad_blue": {"hex": "#4739CE", "where": "New Year 2026 post - fluid gradient, violet-blue"},
+    "li_grad_deep": {"hex": "#432267", "where": "New Year 2026 post - fluid gradient, deep plum"},
+    "li_grad_coral": {"hex": "#F9A098", "where": "New Year 2026 post - fluid gradient, coral"},
+    "li_pink": {"hex": "#EDAEB9", "where": "'Experience-led Everything' page cover - pink"},
+    "li_pink_deep": {"hex": "#DF8193", "where": "'Experience-led Everything' page cover - deep pink"}
+  },
+  "rules": {
+    "wordmark": "top_right",
+    "footer_text": "An RPG Company",
+    "headline": "light lead line + bold key line",
+    "section_label": "pastel bar with the section name",
+    "section_label_roles": ["li_sage", "li_mustard", "li_teal", "li_lavender", "li_beige"],
+    "cover": "fluid gradient (blue-violet -> plum -> coral) or deep indigo, white type",
+    "corner_cluster": ["li_mustard quarter circle", "li_teal triangle", "li_navy square"],
+    "quote": "lavender field, large lavender quotation marks, dark text",
+    "cta": "coral pill with white text"
+  }
+}
