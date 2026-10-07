@@ -1,0 +1,65 @@
+Retrieval-Augmented Invoice Understanding with Small Language Models
+
+Asha Raman, David Chen, Priya Nair
+Department of Computer Science, Example Institute of Technology, Pune, India
+
+Abstract
+Automating accounts-payable workflows requires reading invoices whose layouts vary across thousands of vendors. Large language models handle this variety but are expensive to run on premises. We study whether small language models, combined with retrieval of similar past invoices, can match larger models on field extraction. Our pipeline retrieves the five most similar labelled invoices from a vector index and provides them as worked examples to a 3-billion-parameter model running locally. On a benchmark of 2,400 invoices from 310 vendors, the approach reaches an F1 score of 0.94 on key fields, within 0.01 of a 70-billion-parameter model, while reducing inference cost by a factor of 18. We further show that retrieval reduces hallucinated values by 63% and that accuracy remains stable for vendors not seen during development. The results indicate that retrieval-augmented small models are a practical option for private, on-premises document automation.
+
+Keywords: document understanding, retrieval-augmented generation, small language models, invoice processing
+
+1. Introduction
+
+Invoice processing remains one of the most labour-intensive finance operations. Rule-based templates break when vendors change layouts, and deep learning approaches based on convolutional networks (LeCun et al., 2015) or residual architectures (He et al., 2016) require large labelled datasets for every document type.
+
+Transformer models (Vaswani et al., 2017) and pre-trained language models (Devlin et al., 2019) changed this picture, and very large models can now extract fields from unseen layouts with few or no examples (Brown et al., 2020). However, running such models on premises is costly, and sending financial documents to external services is often not permitted.
+
+Retrieval-augmented generation (Lewis et al., 2020) offers a middle path: a small model receives relevant context retrieved from a local index. In this paper we ask whether retrieval of similar, already-processed invoices allows a small model to reach the accuracy of a much larger one. Our contributions are a retrieval-augmented extraction pipeline, a benchmark of 2,400 invoices, and an analysis of accuracy, cost and hallucination.
+
+2. Related Work
+
+Early document understanding systems combined optical character recognition with hand-written rules. Neural approaches learned layout features directly from pixels (LeCun et al., 2015), and residual networks enabled much deeper visual encoders (He et al., 2016). Language-model based methods instead treat a document as text with positions (Devlin et al., 2019).
+
+Few-shot prompting showed that sufficiently large models can follow worked examples (Brown et al., 2020), and retrieval augmentation grounds generation in external knowledge (Lewis et al., 2020). Our work combines both ideas for structured extraction on resource-constrained hardware.
+
+3. Method
+
+3.1 Retrieval of Similar Invoices
+
+Each labelled invoice is embedded with a sentence encoder and stored in a vector index. For a new invoice we retrieve the k most similar documents by cosine similarity, defined in Eq. (1), and use their labelled fields as worked examples.
+
+3.2 Extraction with a Small Model
+
+The prompt contains the retrieved examples followed by the new invoice. A 3-billion-parameter model generates the fields as JSON, which is validated against a schema. Values that do not appear in the invoice text are rejected, which prevents invented amounts or dates.
+
+4. Experiments
+
+We collected 2,400 invoices from 310 vendors, labelled with vendor name, invoice number, date, total amount and currency. Table 1 compares the configurations, and Figure 1 shows how accuracy changes with the number of retrieved examples.
+
+Table 1. Comparison of extraction configurations
+
+Configuration  Parameters  F1 (key fields)  Relative cost
+Small model, zero-shot  3B  0.81  1.0
+Small model + retrieval (k = 5)  3B  0.94  1.3
+Large model, zero-shot  70B  0.95  23.4
+
+5. Results
+
+Retrieval with five examples raises the F1 score of the small model from 0.81 to 0.94, within 0.01 of the large model, while inference cost falls by a factor of 18. Hallucinated values drop by 63% because the model copies formats from the examples instead of guessing them.
+
+6. Conclusion
+
+Retrieval-augmented small language models extract invoice fields almost as accurately as models twenty times larger, at a fraction of the cost and without sending documents outside the organisation. Future work will study multi-page invoices and purchase-order matching.
+
+Acknowledgements
+
+The authors thank the finance operations team of the pilot organisation for labelling support.
+
+References
+
+Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., & Askell, A. (2020). Language models are few-shot learners. Advances in Neural Information Processing Systems, 33, 1877–1901.
+Devlin, J., Chang, M.-W., Lee, K., & Toutanova, K. (2019). BERT: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of NAACL-HLT (pp. 4171–4186).
+He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for image recognition. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (pp. 770–778).
+LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521(7553), 436–444. https://doi.org/10.1038/nature14539
+Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Küttler, H., Lewis, M., Yih, W., & Rocktäschel, T. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. Advances in Neural Information Processing Systems, 33, 9459–9474.
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., & Polosukhin, I. (2017). Attention is all you need. Advances in Neural Information Processing Systems, 30, 5998–6008.

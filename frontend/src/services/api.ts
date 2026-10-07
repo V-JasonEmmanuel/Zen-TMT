@@ -1,6 +1,6 @@
 import type {
   BrandSummary, BrandView, ContentPlan, Contract, DocumentInfo, Job, MediaAsset, OutputFile, Project, RuntimeSettings,
-  SourceMapping, Suggestion, SystemStatus, TemplateItem, Timeline,
+  PaperDoc, PaperFormat, PaperMeta, SourceMapping, Suggestion, SystemStatus, TemplateItem, Timeline,
 } from "../types";
 
 export class ApiError extends Error {
@@ -92,6 +92,27 @@ export const api = {
   // templates
   templateGallery: (brandId: string) => request<TemplateItem[]>(`/api/templates/gallery?brand_id=${encodeURIComponent(brandId)}`),
 
+  // research papers
+  paperFormats: () => request<PaperFormat[]>("/api/papers/formats"),
+  papers: () => request<PaperMeta[]>("/api/papers"),
+  paper: (id: string) => request<PaperMeta & { paper: PaperDoc | null }>(`/api/papers/${id}`),
+  convertPaper(opts: { file?: File; text?: string; name?: string; format: string; citation_style: string; use_ai: boolean }) {
+    const fd = new FormData();
+    if (opts.file) fd.append("file", opts.file);
+    if (opts.text) fd.append("text", opts.text);
+    if (opts.name) fd.append("name", opts.name);
+    fd.append("format", opts.format);
+    fd.append("citation_style", opts.citation_style);
+    fd.append("use_ai", String(opts.use_ai));
+    return request<PaperMeta>("/api/papers", { method: "POST", body: fd });
+  },
+  savePaper: (id: string, paper: PaperDoc) => request<{ ok: boolean }>(`/api/papers/${id}/paper`, { method: "PUT", body: json(paper) }),
+  exportPaper: (id: string, format: string, citation_style: string) =>
+    request<PaperMeta>(`/api/papers/${id}/export`, { method: "POST", body: json({ format, citation_style }) }),
+  rereadPaper: (id: string) => request<PaperMeta>(`/api/papers/${id}/reread`, { method: "POST" }),
+  deletePaper: (id: string) => request<{ deleted: string }>(`/api/papers/${id}`, { method: "DELETE" }),
+  parseReference: (raw: string) => request<{ csl: Record<string, unknown>; status: string }>("/api/papers/parse-reference", { method: "POST", body: json({ raw }) }),
+
   // brands
   brands: () => request<BrandSummary[]>("/api/brands"),
   brand: (id: string) => request<BrandView>(`/api/brands/${id}`),
@@ -143,6 +164,9 @@ export const fileUrl = (projectId: string, path: string, opts: { download?: bool
   const qs = q.toString();
   return `/api/projects/${projectId}/files/${path}${qs ? `?${qs}` : ""}`;
 };
+
+export const paperFileUrl = (id: string, rel: string, download = false, v?: string) =>
+  `/api/papers/${id}/files/${rel}${download ? "?download=true" : v ? `?v=${encodeURIComponent(v)}` : ""}`;
 
 export const brandAssetUrl = (brandId: string, kind: "assets" | "references", name: string) =>
   `/api/brands/${brandId}/assets/${kind}/${encodeURIComponent(name)}`;

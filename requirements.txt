@@ -19,6 +19,13 @@ onnxruntime>=1.17
 tokenizers>=0.15
 faiss-cpu>=1.7
 
+# Research papers (citation styles via official CSL files, BibTeX, LaTeX text, PDF layout)
+citeproc-py>=0.6
+bibtexparser>=1.4,<2
+pylatexenc>=2.10
+reportlab>=4.0
+Jinja2>=3.1
+
 # Rendering / video
 Pillow>=10.0
 matplotlib>=3.8

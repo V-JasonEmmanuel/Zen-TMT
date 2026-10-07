@@ -133,6 +133,48 @@ under **View sources** and the **Sources** tab.
 
 ---
 
+## Research Papers: convert a paper to a publisher's format
+
+**Research Papers** in the sidebar is a separate tool; it does not touch projects. Upload a paper, or paste its text, and pick a target format. You get the whole paper re-structured, with its citations and references in that publisher's style.
+
+| Format | LaTeX class | References (official CSL style) | Layout |
+|---|---|---|---|
+| Springer Nature journal | `sn-jnl` | Springer Basic, numbered or author–year | single column, Declarations section |
+| Springer LNCS (proceedings) | `llncs` | splncs04 / LNCS | 12.2 × 19.3 cm text block, `Keywords: a · b` |
+| Elsevier journal (Q1 journals use it) | `elsarticle` | Elsevier numbered or Harvard | preprint, highlights, CRediT, competing interests |
+| IEEE conference / journal | `IEEEtran` | IEEE | two columns, Roman small-caps headings, `TABLE I` |
+| ACM conference | `acmart` (sigconf) | ACM | two columns, CCS concepts |
+| APA 7th edition | `apa7` + biblatex-apa | APA 7 | title page, double spacing, APA headings |
+
+**Inputs.**
+* PDF, with selectable text, single or two columns.
+* Word `.docx`.
+* LaTeX `.tex`, or a `.zip` with the `.bib` and figures.
+* Markdown, plain text, or text pasted into the app.
+
+**Outputs.**
+* A LaTeX project in the publisher's class (`main.tex`, `references.bib`, figures). It compiles in Overleaf or any TeX installation.
+* A Word file and a PDF in the target layout.
+* BibTeX.
+* A conversion report.
+
+**Pipeline (offline).**
+1. **Read.** Layout analysis recovers two-column reading order, removes headers and footers, repairs hyphenation, and finds headings from numbering, size and weight. Figures and tables are cropped from the page via their captions, and ruled tables are read as cells. Word styles and native equations are used directly. LaTeX keeps its equations and `\cite` keys.
+2. **Structure.** Title, authors with affiliations and emails, abstract, keywords, and the section tree are recognised. So are the special sections each publisher handles separately: acknowledgements, funding, competing interests, data availability, author contributions, ethics and appendices.
+3. **References.** Entries are split, then parsed into structured records by rules covering IEEE, Springer, APA/Harvard, Elsevier, ACM and Vancouver styles. A `.bib` file is used exactly as it is. The local AI is only a fallback for difficult entries, and each field it returns must appear word for word in the original reference. Anything still unreadable is kept as written and flagged.
+4. **Citations.** Numbered (`[1]`, `[2–5]`, `[1]–[3]`, superscripts), author–year (`(Smith et al., 2020a; Lee & Kim, 2019)`), narrative (`Smith (2020)`) and `\cite` citations are linked to their references. Cross-references ("Table II", "Fig. 3", "Eq. (2)") become live references.
+5. **Render.** In-text citations and the reference list are formatted with the publisher's official CSL style (via `citeproc-py`). Headings are renumbered (1.1 / I.A / unnumbered APA), captions use the format's convention, and the source's typographic habits are removed (IEEE's bold abstract, all-caps captions).
+6. **Report.**
+   * Abstract word limits and keyword counts.
+   * Missing required statements: added as highlighted placeholders and `% TODO` lines.
+   * References that are uncited, unmatched or only partly parsed.
+   * Equations recovered as images from PDFs.
+   * Fidelity: how much of the source text is carried over. The paper's wording is never rewritten.
+
+Review and correct the result in the app (front matter, section levels and types, every reference), then re-convert to any format without reading the paper again. Sample inputs are in `samples/papers/`; regenerate them with `python samples/papers/make_sample_papers.py`.
+
+> For the most exact conversion, upload the LaTeX or Word source rather than a PDF: equations then stay editable, and BibTeX references are used as they are. PDFs do not contain equation source, so their equations are carried over as images and flagged.
+
 ## Try it: showcase samples
 
 `samples/` contains a fictional case study, **InvoiceFlow**, that exercises every feature:

@@ -369,3 +369,63 @@ export interface Timeline {
   updated_at: string;
   rendered: Partial<Record<"preview" | "final", { duration: number; clips: { id: string; type: string; label: string; start: number; end: number }[] }>>;
 }
+
+// ------------------------------------------------------------------ research papers
+export interface PaperFormat {
+  id: string;
+  name: string;
+  publisher: string;
+  description: string;
+  columns: number;
+  page: string;
+  latex_class: string;
+  citation_styles: string[];
+  notes: string[];
+}
+
+export interface PaperCheck { level: "ok" | "info" | "warning" | "error"; title: string; detail: string }
+export interface PaperReport { format: string; checks: PaperCheck[]; fidelity: { coverage: number; missing_sample: string[] }; summary: Record<string, number> }
+
+export interface PaperExport { format: string; citation_style: string; files: Record<string, string>; report: PaperReport }
+
+export interface PaperMeta {
+  id: string;
+  filename: string;
+  source_kind: string;
+  format: string;
+  citation_style: string;
+  use_ai: boolean;
+  status: "queued" | "running" | "done" | "failed";
+  message: string;
+  error: string;
+  progress?: number;
+  created_at: string;
+  updated_at: string;
+  title: string;
+  outputs: Record<string, PaperExport>;
+  report: PaperReport | null;
+  stats: Record<string, number>;
+  running?: boolean;
+}
+
+export interface PaperInline { t: string; b?: boolean; i?: boolean; sup?: boolean; sub?: boolean; cite?: string[]; math?: string; raw_cite?: string; xref?: string }
+export interface PaperBlock { kind: string; runs: PaperInline[]; items: PaperInline[][]; caption: PaperInline[]; image: string; rows: string[][]; latex: string; label: string; note: string }
+export interface PaperSection { title: string; level: number; kind: string; blocks: PaperBlock[]; source_number: string }
+export interface PaperAuthor { name: string; affiliations: number[]; email: string; orcid: string; corresponding: boolean }
+export interface PaperReference { key: string; raw: string; csl: Record<string, unknown>; status: "parsed" | "partial" | "raw"; method: string; source_label: string; cited: boolean }
+export interface PaperDoc {
+  title: string;
+  subtitle: string;
+  authors: PaperAuthor[];
+  affiliations: string[];
+  abstract: PaperInline[];
+  keywords: string[];
+  sections: PaperSection[];
+  references: PaperReference[];
+  highlights: string[];
+  source_format: string;
+  source_citation_style: string;
+  source_name: string;
+  warnings: string[];
+  meta: Record<string, unknown>;
+}

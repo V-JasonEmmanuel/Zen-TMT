@@ -6,8 +6,10 @@ import { Brands } from "./pages/Brands";
 import { Dashboard } from "./pages/Dashboard";
 import { MediaLibrary } from "./pages/MediaLibrary";
 import { NewProject } from "./pages/NewProject";
+import { PaperDetail } from "./pages/PaperDetail";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { Projects } from "./pages/Projects";
+import { ResearchPapers } from "./pages/ResearchPapers";
 import { SettingsPage } from "./pages/Settings";
 import { Templates } from "./pages/Templates";
 import { Welcome } from "./pages/Welcome";
@@ -42,6 +44,8 @@ export default function App() {
             <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/brands" element={<Brands />} />
             <Route path="/brands/:id" element={<BrandEditor />} />
+            <Route path="/papers" element={<ResearchPapers />} />
+            <Route path="/papers/:id" element={<PaperDetail />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/media" element={<MediaLibrary />} />
             <Route path="/settings" element={<SettingsPage />} />
