@@ -17,6 +17,15 @@ ELSEVIER_TITLES = {"competing": "Declaration of competing interest", "contributi
 PLACEHOLDER = "[To be completed by the authors.]"
 
 
+def email_line(p: Paper) -> str:
+    """Contact line under the affiliations; explains the '*' put on corresponding authors."""
+    emails = [a.email for a in p.authors if a.email]
+    if not any(a.corresponding for a in p.authors):
+        return ", ".join(emails)
+    label = "Corresponding author" + ("s" if sum(a.corresponding for a in p.authors) > 1 else "")
+    return f"*{label}: " + ", ".join(emails)
+
+
 def roman(n: int) -> str:
     return ROMAN[n] if n < len(ROMAN) else str(n)
 
@@ -40,6 +49,7 @@ class Layout:
     tab_no: dict[int, int] = field(default_factory=dict)
     eq_no: dict[int, int] = field(default_factory=dict)
     by_label: dict[str, int] = field(default_factory=dict)  # block label -> number (cross references)
+    sec_numbered: dict[str, bool] = field(default_factory=dict)  # section label -> printed with a number
 
 
 def heading_text(fmt: Format, title: str, number: str, level: int) -> str:
@@ -84,6 +94,14 @@ def arrange(paper: Paper, fmt: Format) -> Layout:
             else:
                 num = ".".join(str(c) for c in counters[:lvl])
         n = Numbered(s, num, heading_text(fmt, s.title, num, lvl) if s.title else "")
+        if s.source_number:  # "see Section 3.1" -> the section's number in this format ("III-A" in IEEE)
+            from backend.papers.crossrefs import sec_label
+
+            full = num
+            if num and fmt.numbering == "roman" and not in_appendix:
+                full = roman(counters[0]) + ("-" + chr(64 + counters[1]) if lvl >= 2 else "") + (str(counters[2]) if lvl >= 3 else "")
+            lay.by_label[sec_label(s.source_number)] = full or s.title
+            lay.sec_numbered[sec_label(s.source_number)] = bool(full)
         (lay.appendix if in_appendix else lay.body).append(n)
     f = t = e = 0
     for s in paper.sections:
@@ -97,6 +115,8 @@ def arrange(paper: Paper, fmt: Format) -> Layout:
                 lay.tab_no[id(b)] = t
                 lay.by_label[b.label] = t
             elif b.kind == "equation":
+                if b.image and not b.latex and not b.omml and not b.number:
+                    continue  # cropped from a PDF where it was not numbered: keep it unnumbered
                 e += 1
                 lay.eq_no[id(b)] = e
                 lay.by_label[b.label] = e

@@ -272,3 +272,50 @@ def test_pasted_text_with_windows_line_endings(samples):
     assert any(b.kind == "table" and len(b.rows) == 4 for b in p.all_blocks())
     assert len(p.references) == 6
     service.delete(pid)
+
+
+# ------------------------------------------------------------------ journal-PDF details (PLOS-style)
+def test_vancouver_reference_and_broken_doi():
+    from backend.papers.references import build_references, join_urls
+
+    assert join_urls("IEEE Trans. 2011. https://doi.org/10. 1109/TSE.2011.103") == "IEEE Trans. 2011. https://doi.org/10.1109/TSE.2011.103"
+    assert join_urls("(https://github.com/ lining-nwpu/JiT)") == "(https://github.com/lining-nwpu/JiT)"
+    assert join_urls("https://x.org/a. Accessed 2020") == "https://x.org/a. Accessed 2020"
+    refs = build_references([("5", "Hall T, Beecham S, Bowes D, Gray D, Counsell S. A systematic literature review on fault "
+                             "prediction performance in software engineering. IEEE Trans Softw Eng. 2011; 38(6):1276–1304. "
+                             "https://doi.org/10. 1109/TSE.2011.103")], use_llm=False)
+    r = refs[0]
+    assert r.csl["author"][0]["family"] == "Hall" and r.csl["DOI"] == "10.1109/TSE.2011.103"
+
+
+def test_dehyphenation_keeps_compounds():
+    from backend.papers.readers import pdf as R
+
+    R._VOCAB.clear()
+    R._VOCAB.update({"coarser-grained": 1, "finer": 1, "grained": 1, "parame": 1, "terized": 1, "quanti": 1, "fied": 1})
+    assert not R._dehyphen("produces finer-", "grained predictions")  # 'coarser-grained' elsewhere
+    assert R._dehyphen("is parame-", "terized using")
+    assert R._dehyphen("quanti-", "fied by")
+
+
+def test_section_cross_references_follow_the_format():
+    from backend.papers.crossrefs import link, render
+    from backend.papers.formats import FORMATS
+
+    get_format = FORMATS.__getitem__
+    from backend.papers.model import Block, Inline, Paper, Section
+    from backend.papers.writers.common import arrange, email_line
+    from backend.papers.model import Author
+
+    p = Paper(title="T", sections=[
+        Section(title="Introduction", level=1, source_number="1",
+                blocks=[Block(kind="para", runs=[Inline(t="As shown in Section 2.1, it works.")])]),
+        Section(title="Methods", level=1, source_number="2"),
+        Section(title="Graph modeling", level=2, source_number="2.1")])
+    assert link(p) == 1
+    x = next(r for r in p.sections[0].blocks[0].runs if r.xref)
+    assert render(get_format("ieee"), arrange(p, get_format("ieee")), x.xref, x.t) == "Section II-A"
+    assert render(get_format("springer_nature"), arrange(p, get_format("springer_nature")), x.xref, x.t) == "Section 2.1"
+    assert "Graph modeling" in render(get_format("apa7"), arrange(p, get_format("apa7")), x.xref, x.t)
+    p.authors = [Author(name="A B", email="a@b.org", corresponding=True)]
+    assert email_line(p) == "*Corresponding author: a@b.org"

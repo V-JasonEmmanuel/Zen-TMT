@@ -61,6 +61,8 @@ def runs(rs: list[Inline], fmt: Format, style: str) -> str:
             out.append(pre + _cite(fmt, style, r.cite, narrative))
         elif r.math:
             out.append(f"${r.math}$")
+        elif r.img:  # inline math cropped from a PDF (no usable text in its fonts)
+            out.append(f"\\raisebox{{-0.3\\height}}{{\\includegraphics[height={min(r.img_h, 19):.1f}pt]{{{r.img}}}}}")
         elif r.xref:
             plural = bool(re.match(r"\w+s\b", r.t.split()[0])) if r.t.split() else False
             kind = r.xref[:3]
@@ -69,6 +71,12 @@ def runs(rs: list[Inline], fmt: Format, style: str) -> str:
                 out.append(f"{word}~\\ref{{{_lab(r.xref)}}}")
             elif kind == "tab":
                 out.append(f"Table{'s' if plural else ''}~\\ref{{{_lab(r.xref)}}}")
+            elif kind == "sec":
+                lab = _lab(r.xref)
+                if fmt.numbering == "none":  # unnumbered headings (APA): refer to the section by its title
+                    out.append(f"the ``\\nameref{{{lab}}}'' section")
+                else:
+                    out.append(f"{r.t.split()[0] if r.t.split() else 'Section'}~\\ref{{{lab}}}")
             else:
                 out.append(f"{'Eqs.' if plural else 'Eq.'}~(\\ref{{{_lab(r.xref)}}})" if fmt.id != "apa7" else f"Equation~\\ref{{{_lab(r.xref)}}}")
         else:
@@ -100,8 +108,10 @@ def _block(b: Block, fmt: Format, style: str, lay: Layout, wide: bool) -> str:
         if b.latex:
             return "\\begin{equation}\n" + b.latex + "\n" + lab + "\n\\end{equation}"
         if b.image:
+            env = "equation" if id(b) in lay.eq_no else "equation*"  # unnumbered in the source -> unnumbered here
             return ("% TODO: equation recovered from the PDF as an image - retype it in LaTeX for the final version\n"
-                    f"\\begin{{equation}}\n\\vcenter{{\\hbox{{\\includegraphics[height=1.4\\baselineskip]{{{b.image}}}}}}}\n{lab}\n\\end{{equation}}")
+                    f"\\begin{{{env}}}\n\\vcenter{{\\hbox{{\\includegraphics[height=1.4\\baselineskip]{{{b.image}}}}}}}\n"
+                    + (lab + "\n" if env == "equation" else "") + f"\\end{{{env}}}")
         return "\\begin{equation}\n\\text{" + escape("".join(r.t for r in b.runs)) + "}\n" + lab + "\n\\end{equation}"
     if b.kind == "figure":
         env = "figure*" if wide else "figure"
@@ -243,6 +253,8 @@ def write_tex(p: Paper, fmt: Format, style: str) -> str:
         pkgs.append("url")
     if fmt.latex_class == "IEEEtran":
         pkgs.append("cite")
+    if fmt.numbering == "none":
+        pkgs.append("nameref")  # section cross references by title
     head = [_class_line(fmt, style)]
     if fmt.latex_class not in ("sn-jnl", "acmart"):
         head.append("\\usepackage[T1]{fontenc}")
@@ -259,7 +271,7 @@ def write_tex(p: Paper, fmt: Format, style: str) -> str:
         s = n.section
         if s.title:
             cmd = _section_cmd(s.level, starred=fmt.numbering == "none" and False)
-            doc.append(f"\\{cmd}{{{escape(s.title)}}}")
+            doc.append(f"\\{cmd}{{{escape(s.title)}}}" + (f"\\label{{{_lab('sec' + s.source_number.rstrip('.'))}}}" if s.source_number else ""))
         for b in s.blocks:
             doc.append(_block(b, fmt, style, lay, wide(b)))
             doc.append("")

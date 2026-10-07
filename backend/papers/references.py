@@ -20,7 +20,7 @@ URL = re.compile(r"(https?://[^\s<>\"]+)")
 YEAR = re.compile(r"(?<![\d/.-])((?:19|20)\d{2})([a-z])?(?![\d/])")
 ARXIV = re.compile(r"arXiv[:\s]*(\d{4}\.\d{4,5})(v\d+)?", re.I)
 PAGES = re.compile(r"(?:\bpp?\.\s*)?\b([A-Za-z]?\d+)\s*[-–—]{1,2}\s*([A-Za-z]?\d+)\b")
-LABEL = re.compile(r"^\s*(?:\[(\d{1,4})\]|(\d{1,4})\.(?=\s)|(\d{1,4})\s(?=[A-Z]))\s*")
+LABEL = re.compile(r"^\s*(?:\[(\d{1,4})\]|(\d{1,4})\.(?=\s|$)|(\d{1,4})\s(?=[A-Z]))\s*")
 QUOTED = re.compile(r"[“\"]\s*(.+?)\s*[,.]?\s*[”\"]")
 CONF_CUES = re.compile(r"\b(proc\.|proceedings|conference|conf\.|symposium|workshop|in:|in proc|annual meeting|congress)\b", re.I)
 BOOK_CUES = re.compile(r"\b(press|publishers?|publishing|verlag|springer,|wiley,|elsevier,|mit press|cambridge university|oxford university|edn\.|ed\.)\b", re.I)
@@ -89,7 +89,7 @@ def _norm(s: str) -> str:
 
 
 INITIALS = r"(?:[A-Z]\.(?:\s?-?[A-Z]\.)*|[A-Z]{1,3}(?![a-z]))"
-NAME_WORD = r"[A-ZÀ-Ý][A-Za-zÀ-ÿ'’\-]+"
+NAME_WORD = r"(?:[A-ZÀ-Ý]|[Ā-ſ])[A-Za-zÀ-ÿĀ-ſ'’\-]+"  # Latin-1 + Latin Extended-A (Ś, Ł, Č, Ž ...)
 PARTICLE = r"(?:(?:van|von|der|de|del|della|di|da|la|le|du|dos|das|ter|ten|al|el|bin|ibn)\s+)*"
 
 
@@ -109,10 +109,14 @@ def parse_names(text: str) -> list[dict]:
         return names
     parts = [p.strip() for p in t.split(",") if p.strip()]
     for p in parts:
-        # Family Initials (Springer basic / Vancouver): "He K", "van der Berg JH"
-        m = re.fullmatch(rf"({PARTICLE}{NAME_WORD}(?:\s{NAME_WORD})*)\s+([A-Z]{{1,3}}|{INITIALS})", p)
+        suffix = ""
+        sm = re.search(r"\s(Jr|Sr|II|III|IV)\.?$", p)
+        if sm:
+            suffix, p = sm.group(1), p[:sm.start()]
+        # Family Initials (Springer basic / Vancouver): "He K", "van der Berg JH", "Abou Daya A", "Hosmer DW Jr"
+        m = re.fullmatch(rf"({PARTICLE}{NAME_WORD}(?:\s{NAME_WORD})*)\s+([A-Z]{{1,4}}|{INITIALS})", p)
         if m and not re.fullmatch(INITIALS, m.group(1)):
-            names.append({"family": m.group(1), "given": _initials(m.group(2))})
+            names.append({"family": m.group(1), "given": _initials(m.group(2)), **({"suffix": suffix} if suffix else {})})
             continue
         # Initials Family (IEEE): "K. He", "J.-H. Kim"
         m = re.fullmatch(rf"({INITIALS}(?:\s?{INITIALS})*)\s+({PARTICLE}{NAME_WORD}(?:\s{NAME_WORD})*)", p)
@@ -137,9 +141,34 @@ def _initials(s: str) -> str:
 
 
 # ------------------------------------------------------------------ rule-based parsing
+MODIFIERS = {"ˆ": "̂", "´": "́", "`": "̀", "¨": "̈", "˜": "̃", "¸": "̧", "˚": "̊", "ˇ": "̌"}
+
+
+def join_urls(s: str) -> str:
+    """URLs/DOIs the source broke over two lines: 'https://doi.org/10. 1109/TSE' -> one URL."""
+    s = re.sub(r"((?:https?://|www\.)\S*/)\s+(?=[\w%#?=&~-])", r"\1", s)
+    return re.sub(r"((?:https?://|www\.|\b10\.)\S*\.)\s+(?=\d+(?:[/A-Za-z_-]|\.\d))", r"\1", s)  # not '...263127.' + '63.' (next list label)
+
+
+def fix_diacritics(s: str) -> str:
+    """PDFs often store accented letters as letter + spacing accent ('Lemaıˆtre', 'Mu¨ller'): recombine them."""
+    def rep(m):
+        a, b = m.group(1), m.group(2)
+        letter, mod = (a, b) if b in MODIFIERS else (b, a)
+        letter = "i" if letter == "ı" else letter
+        return unicodedata.normalize("NFC", letter + MODIFIERS[mod])
+    return re.sub(r"([A-Za-zı])([ˆ´`¨˜¸˚ˇ])|([ˆ´`¨˜¸˚ˇ])([A-Za-zı])",
+                  lambda m: rep(re.match(r"(.)(.)", m.group(0))), s)
+
+
 def parse_rules(raw: str) -> dict[str, Any]:
-    s = raw.strip()
+    s = fix_diacritics(raw.strip())
     csl: dict[str, Any] = {}
+    om = ORG.match(s)
+    if om and URL.search(s) and not VANC.match(s):  # organisation as author: "Google. Imbalanced Data; 2022. https://..."
+        csl = {"type": "webpage", "author": [{"literal": om.group(1).strip()}], "title": om.group(2).strip(),
+               "issued": {"date-parts": [[int(om.group(3))]]}, "URL": URL.search(s).group(1).rstrip(".,;)]")}
+        return csl
     if (m := DOI.search(s)):
         csl["DOI"] = m.group(1).rstrip(".,;)]")
     urls = [u.rstrip(".,;)]") for u in URL.findall(s)]
@@ -149,7 +178,8 @@ def parse_rules(raw: str) -> dict[str, Any]:
         csl["number"] = f"arXiv:{m.group(1)}"
     body = DOI.sub("", URL.sub("", s))
     body = re.sub(r"\b(?:doi|DOI)\s*:?\s*", "", body)
-    body = re.sub(r"\[?(?:Online|Accessed|Available)[^\]]*\]?:?", "", body).strip(" .,;")
+    # IEEE web markers "[Online]. Available:" / "Accessed: Jan. 1, 2020" - never words inside a title ("Deepwalk: Online learning")
+    body = re.sub(r"\[(?:Online|Accessed|Available)[^\]]*\]\.?|\b(?:Available(?: online)?|Accessed(?: on)?)\s*:[^.]*", "", body).strip(" .,;")
     years = list(YEAR.finditer(body))
     year_m = next((y for y in years if body[max(0, y.start() - 1):y.start()] in ("(", " ") and
                    body[y.end():y.end() + 1] in (")", ".", ",", ";", " ", "")), years[0] if years else None)
@@ -188,9 +218,18 @@ def parse_rules(raw: str) -> dict[str, Any]:
     return csl
 
 
+VANC_NAME = r"[A-ZÀ-ÝŚŁŻČŠŽ][\w'’\-]*(?:\s(?:[a-z]{1,3}\s)?[A-ZÀ-ÝŚŁŻČŠŽ][\w'’\-]+)*\s[A-Z]{1,4}(?:\s(?:Jr|Sr|II|III|IV))?"
+VANC = re.compile(rf"^((?:{VANC_NAME})(?:,\s(?:{VANC_NAME}))*(?:,\set\sal)?)\.\s+(.*)$")
+ORG = re.compile(r"^([A-Z][\w&.\- ]{1,50}?)\.\s+(.+?)[;.]\s*((?:19|20)\d{2})\b")
+
+
 def _readings(body: str, year_m) -> list[tuple[str, str, str]]:
     """Candidate (authors, title, rest) readings, one per reference-style pattern."""
     out = []
+    m = VANC.match(body)
+    if m:  # Vancouver / NLM (PLOS, medicine, many CS journals): Family AB, Family C. Title. Journal. 2020; 1(2):3-4.
+        t, r = _split_title(m.group(2))
+        out.append((m.group(1), t, r))
     q = QUOTED.search(body)
     if q:  # IEEE: Authors, “Title,” in Container, vol. 1, pp. 1-2, 2020.
         out.append((body[:q.start()], q.group(1).strip().rstrip(",."), body[q.end():]))
@@ -321,7 +360,9 @@ def _type(s: str, csl: dict) -> str:
 def completeness(csl: dict) -> str:
     has = lambda k: bool(csl.get(k))  # noqa: E731
     if has("author") and has("title") and has("issued") and (has("container-title") or has("publisher") or csl.get("type") in ("webpage", "document", "book", "report", "thesis")):
-        if all("literal" not in a or a["literal"] == "et al." for a in csl.get("author", [])):
+        authors = csl.get("author", [])
+        org = len(authors) == 1 and "literal" in authors[0] and len(authors[0]["literal"].split()) <= 6
+        if org or all("literal" not in a or a["literal"] == "et al." for a in authors):
             return "parsed"
     if has("title") and (has("author") or has("issued")):
         return "partial"
@@ -427,6 +468,7 @@ def build_references(entries: list[tuple[str, str]], use_llm: bool = True, on_pr
     used: set[str] = set()
     refs: list[Reference] = []
     for i, (label, raw) in enumerate(entries):
+        raw = join_urls(fix_diacritics(raw))
         if on_progress:
             on_progress(f"Reading reference {i + 1} of {len(entries)}")
         csl = verify(parse_rules(raw), raw)

@@ -23,7 +23,16 @@ def fidelity(paper: Paper, raw_text: str) -> dict:
         for b in s.blocks:
             parts += [plain(b.runs), plain(b.caption), " ".join(plain(i) for i in b.items), " ".join(" ".join(r) for r in b.rows), b.latex]
     parts += [r.raw for r in paper.references]
+    parts += list((paper.meta.get("article_info") or {}).values()) + list(paper.meta.get("author_notes") or [])
     have = Counter(_words(" ".join(parts)))
+    joined = " ".join(parts).lower()
+    # words the source broke across lines ("pro-\ntion") are compared as the whole word
+    raw_text = re.sub(r"([A-Za-z]+)-[ \t]*\n\s*([a-z]+)",
+                      lambda m: m.group(1) + ("-" if f"{m.group(1)}-{m.group(2)}".lower() in joined else "") + m.group(2), raw_text)
+    from backend.papers.references import join_urls
+
+    raw_text = join_urls(raw_text)  # DOIs/URLs broken over lines are whole in the output
+    raw_text = re.sub(r"(?<=[a-z])ID(?=[\d☯*†‡§,\s]|$)", "", raw_text, flags=re.M)  # ORCID icon read as 'ID'
     # structural labels are replaced by the target format's own (they are not content)
     labels = {"abstract", "keywords", "keyword", "index", "terms", "references", "bibliography", "fig", "figure", "table",
               "tab", "eq", "eqs", "equation", "email", "mail", "summary", "acknowledgment", "acknowledgments", "acknowledgements",
@@ -109,7 +118,7 @@ def report(paper: Paper, fmt: Format, raw_text: str, math_as_text: int = 0, extr
     fid = fidelity(paper, raw_text)
     lvl = "ok" if fid["coverage"] >= 0.97 else "warning" if fid["coverage"] >= 0.9 else "error"
     add(lvl, f"Content preserved: {fid['coverage'] * 100:.1f}% of the source text",
-        "The paper's own wording is carried over unchanged." + (f" Words not found in the conversion: {', '.join(fid['missing_sample'][:10])}" if fid["coverage"] < 0.99 else ""))
+        "The paper's own wording is carried over unchanged." + (f" Words not found in the conversion: {', '.join(fid['missing_sample'][:10])}" if fid["coverage"] < 0.99 and fid["missing_sample"] else ""))
     return {"format": fmt.id, "checks": checks, "fidelity": fid,
             "summary": {k: sum(1 for c in checks if c["level"] == k) for k in ("ok", "info", "warning", "error")}}
 

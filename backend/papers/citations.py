@@ -105,6 +105,8 @@ def _split_text(r: Inline, linker: Linker, style: str) -> list[Inline]:
             if any(a <= m.start() < b for a, b in ranged):
                 continue
             nums = _expand(m.group(1))
+            if nums and max(nums) > max(len(linker.refs), 1) * 1.5 + 5:
+                continue  # values in brackets ("[10, 100, 1000]"), not citations
             keys = linker.numeric(nums) if nums else []
             if keys:
                 spans.append((m.start(), m.end(), keys, m.group(0), ""))

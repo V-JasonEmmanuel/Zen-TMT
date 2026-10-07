@@ -20,7 +20,7 @@ from backend.papers.cite_render import Rendered
 from backend.papers.formats import Format
 from backend.papers.math_render import as_text, render as render_math
 from backend.papers.model import Block, Inline, Paper
-from backend.papers.writers.common import PLACEHOLDER, Layout, ack_title, arrange, caption_label, statement_title
+from backend.papers.writers.common import email_line, PLACEHOLDER, Layout, ack_title, arrange, caption_label, statement_title
 
 PAGE = {"A4": (8.27, 11.69), "Letter": (8.5, 11.0)}
 ALIGN = {"left": WD_ALIGN_PARAGRAPH.LEFT, "center": WD_ALIGN_PARAGRAPH.CENTER, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}
@@ -93,6 +93,11 @@ class WordWriter:
             if r.cite:
                 txt = self.r.cite_text(list(r.cite), r.t == "narrative", r.raw_cite)
                 run = p.add_run(txt)
+            elif r.img:
+                pth = self.dir / r.img
+                if pth.exists():
+                    p.add_run().add_picture(str(pth), height=Pt(min(r.img_h, (size or self.f.body_pt) * 1.9)))
+                continue
             elif r.xref:
                 from backend.papers.crossrefs import render as xref_text
 
@@ -138,7 +143,7 @@ class WordWriter:
             for i, a in enumerate(p.authors):
                 if i:
                     ap.add_run(", " if i < len(p.authors) - 1 else (" and " if f.id in ("ieee", "acm", "apa7") else ", "))
-                ap.add_run(a.name).font.size = Pt(f.body_pt + 1)
+                ap.add_run(a.name).font.size = Pt(f.body_pt + (0 if f.title_page else 1))
                 marks = ",".join(str(x + 1) for x in a.affiliations) if len(p.affiliations) > 1 else ""
                 if a.corresponding:
                     marks = (marks + "*") if marks else "*"
@@ -151,13 +156,13 @@ class WordWriter:
                 m = ap.add_run(str(i + 1))
                 m.font.superscript = True
             r = ap.add_run(aff)
-            r.font.size = Pt(max(8, f.body_pt - 1))
+            r.font.size = Pt(f.body_pt if f.title_page else max(8, f.body_pt - 1))
             r.italic = f.id in ("ieee", "springer_lncs")
         emails = [a.email for a in p.authors if a.email]
         if emails:
             ep = self._para(align=f.title_align, space_after=10)
-            r = ep.add_run(", ".join(emails))
-            r.font.size = Pt(max(8, f.body_pt - 1))
+            r = ep.add_run(email_line(p))
+            r.font.size = Pt(f.body_pt if f.title_page else max(8, f.body_pt - 1))
         else:
             self._para(space_after=8)
         if f.title_page:  # APA: the abstract starts on its own page
@@ -252,7 +257,8 @@ class WordWriter:
         else:
             p.add_run(as_text(b.latex) if b.latex else "".join(r.t for r in b.runs)).italic = True
             self.math_as_text += 1
-        p.add_run(f"\t({n})")
+        if n:
+            p.add_run(f"\t({n})")
 
     def _float(self, b: Block):
         f = self.f

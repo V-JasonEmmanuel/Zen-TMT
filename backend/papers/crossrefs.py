@@ -7,6 +7,7 @@ import re
 from backend.papers.model import Inline, Paper
 
 ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
+SEC_PAT = re.compile(r"\b(Sections?|Sect\.|Sec\.|§)\s*~?\s*((?:\d{1,2}|[IVX]{1,5})(?:\.\d{1,2})*)(?![\w]|\.\d)")
 PAT = re.compile(r"\b(?:(Fig(?:ure)?s?\.?|FIG(?:URE)?\.?)|(Tables?|TABLES?|Tab\.)|(Eqs?\.|Equations?))\s*~?\s*"
                  r"(\(\s*(?:\d{1,3}|[IVX]{1,5})[a-z]?\s*\)|(?:\d{1,3}|[IVX]{1,5})[a-z]?)(?![\w.]\d)(?!\w)")
 
@@ -20,6 +21,7 @@ def link(paper: Paper) -> int:
         if b.kind == "equation":
             k += 1
             eqs[b.number or str(k)] = b.label
+    secs = {s.source_number.rstrip("."): sec_label(s.source_number) for s in paper.sections if s.source_number}
     count = 0
 
     def resolve(m: re.Match) -> str:
@@ -41,8 +43,11 @@ def link(paper: Paper) -> int:
                 out.append(r)
                 continue
             pos = 0
-            for m in PAT.finditer(r.t):
-                lab = resolve(m)
+            found = [(m, resolve(m)) for m in PAT.finditer(r.t)] + \
+                [(m, secs.get(m.group(2), "")) for m in SEC_PAT.finditer(r.t)]
+            for m, lab in sorted(found, key=lambda x: x[0].start()):
+                if m.start() < pos:
+                    continue
                 if not lab:
                     continue
                 if m.start() > pos:
@@ -61,6 +66,10 @@ def link(paper: Paper) -> int:
     return count
 
 
+def sec_label(number: str) -> str:
+    return "sec" + number.rstrip(".")
+
+
 def render(fmt, lay, label: str, original: str) -> str:
     """Printed form of a cross reference in the target format (Word/PDF)."""
     from backend.papers.writers.common import roman
@@ -69,6 +78,9 @@ def render(fmt, lay, label: str, original: str) -> str:
     n = lay.by_label.get(label)
     if n is None:
         return original
+    if kind == "sec":  # n: the section's number in the target format, or its title when unnumbered
+        word = original.split()[0] if original.split() else "Section"
+        return f"{word} {n}" if lay.sec_numbered.get(label) else f"the \u201c{n}\u201d section"
     plural = bool(re.match(r"\w+s\b", original.split()[0])) if original.split() else False
     if kind == "fig":
         word = fmt.fig_label.rstrip(".") + ("." if fmt.fig_label.endswith(".") else "")

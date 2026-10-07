@@ -148,6 +148,7 @@ def read_paper(pid: str, meta: dict) -> tuple[Paper, str, list[str]]:
                             source_format=meta["source_kind"], source_name=meta["filename"])
     paper.meta["footnotes"] = data.get("footnotes", [])
     notes = list(data.get("notes", []))
+    _sidebar_into(paper, data.get("sidebar", []))
     # references: the .bib (LaTeX), \bibitem entries, or the reference list text
     if data.get("bib"):
         paper.references = references.from_bibtex(data["bib"])
@@ -189,6 +190,34 @@ def read_paper(pid: str, meta: dict) -> tuple[Paper, str, list[str]]:
     paper.warnings = notes
     (d / "source_text.txt").write_text(data.get("raw_text", ""), encoding="utf-8")
     return paper, data.get("raw_text", ""), notes
+
+
+SIDEBAR_KIND = {"funding": "funding", "competing interests": "competing", "conflict of interest": "competing",
+                "conflicts of interest": "competing", "data availability": "data", "data availability statement": "data",
+                "ethics statement": "ethics", "author contributions": "contributions"}
+
+
+def _sidebar_into(paper: Paper, sidebar: list[tuple[str, str]]) -> None:
+    """Statements printed in a journal's first-page sidebar become the paper's statement sections (funding,
+    competing interests, data availability...); the rest (citation, editor, dates, licence) is kept as info."""
+    from backend.papers.model import Block, Inline, Section
+
+    info: dict[str, str] = {}
+    last_kind = ""
+    for label, text in sidebar:
+        kind = SIDEBAR_KIND.get(label.lower(), "")
+        if not label and last_kind and text:  # unlabelled continuation of the previous statement
+            sec = next((s for s in paper.sections if s.kind == last_kind), None)
+            if sec:
+                sec.blocks.append(Block(kind="para", runs=[Inline(t=text)]))
+            continue
+        last_kind = kind
+        if kind and text and not any(s.kind == kind for s in paper.sections):
+            paper.sections.append(Section(title=label, level=1, kind=kind, blocks=[Block(kind="para", runs=[Inline(t=text)])]))
+        elif label and text:
+            info[label] = text
+    if info:
+        paper.meta["article_info"] = info
 
 
 def export(pid: str, paper: Paper, format_id: str, style: str, raw_text: str = "") -> dict:

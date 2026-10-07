@@ -24,6 +24,9 @@ class Inline(BaseModel):
     math: str = ""  # inline math, LaTeX source (from LaTeX/DOCX sources)
     raw_cite: str = ""  # the citation as written in the source, e.g. "[3-5]"
     xref: str = ""  # cross reference to a figure/table/equation block label ("fig1", "tab2", "eq3"); t = source text
+    img: str = ""  # inline math cropped from a PDF (fonts without text mapping) - path relative to the paper folder
+    img_w: float = 0.0  # points
+    img_h: float = 0.0
 
 
 class Block(BaseModel):

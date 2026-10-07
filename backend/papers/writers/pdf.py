@@ -23,7 +23,7 @@ from backend.papers.cite_render import Rendered
 from backend.papers.formats import Format
 from backend.papers.math_render import as_text, render as render_math
 from backend.papers.model import Block, Inline, Paper
-from backend.papers.writers.common import PLACEHOLDER, Layout, ack_title, arrange, caption_label, statement_title
+from backend.papers.writers.common import email_line, PLACEHOLDER, Layout, ack_title, arrange, caption_label, statement_title
 
 _FONTS: dict[str, str] = {}
 
@@ -94,9 +94,12 @@ class PDFWriter:
             "body0": ParagraphStyle("body0", fontName=B, fontSize=f.body_pt, leading=lead, alignment=TA_JUSTIFY if f.justify else TA_LEFT),
             "title": ParagraphStyle("title", fontName=B + ("-B" if f.title_bold and B != "Times-Roman" else ""), fontSize=f.title_pt,
                                     leading=f.title_pt * 1.2, alignment=TA_CENTER if f.title_align == "center" else TA_LEFT, spaceAfter=10),
-            "author": ParagraphStyle("author", fontName=B, fontSize=f.body_pt + 1, leading=(f.body_pt + 1) * 1.3,
+            # APA title page: everything in the body size, double-spaced
+            "author": ParagraphStyle("author", fontName=B, fontSize=f.body_pt + (0 if f.title_page else 1),
+                                     leading=lead if f.title_page else (f.body_pt + 1) * 1.3,
                                      alignment=TA_CENTER if f.title_align == "center" else TA_LEFT),
-            "aff": ParagraphStyle("aff", fontName=B, fontSize=max(8, f.body_pt - 1), leading=max(8, f.body_pt - 1) * 1.25,
+            "aff": ParagraphStyle("aff", fontName=B, fontSize=f.body_pt if f.title_page else max(8, f.body_pt - 1),
+                                  leading=lead if f.title_page else max(8, f.body_pt - 1) * 1.25,
                                   alignment=TA_CENTER if f.title_align == "center" else TA_LEFT),
             "abs": ParagraphStyle("abs", fontName=B, fontSize=f.body_pt - (1 if f.id == "ieee" else 0), leading=lead * 0.98,
                                   alignment=TA_JUSTIFY if f.justify else TA_LEFT, spaceAfter=5),
@@ -114,6 +117,8 @@ class PDFWriter:
                                   alignment=TA_LEFT, spaceAfter=2, bulletFontName=B, bulletFontSize=f.ref_pt),
             "code": ParagraphStyle("code", fontName="Courier", fontSize=f.body_pt - 1.5, leading=(f.body_pt - 1.5) * 1.2),
         }
+        for s in self.st.values():
+            s.autoLeading = "max"  # a line holding a tall inline formula grows instead of overprinting its neighbours
         if self.font == "Times-Roman":  # built-in Type1 fonts have fixed names
             for s in self.st.values():
                 s.fontName = {"Times-Roman-B": "Times-Bold", "Times-Roman-I": "Times-Italic"}.get(s.fontName, s.fontName)
@@ -125,6 +130,13 @@ class PDFWriter:
         for r in runs:
             if r.cite:
                 out.append(html.escape(self.r.cite_text(list(r.cite), r.t == "narrative", r.raw_cite), quote=False))
+                continue
+            if r.img:
+                p = self.dir / r.img
+                if p.exists():
+                    scale = min(1.0, (size * 1.9) / max(r.img_h, 1)) if r.img_h > size * 1.9 else 1.0
+                    w, h = r.img_w * scale, r.img_h * scale
+                    out.append(f'<img src="{p.as_posix()}" width="{w:.1f}" height="{h:.1f}" valign="{-h * 0.3:.1f}"/>')
                 continue
             if r.xref:
                 from backend.papers.crossrefs import render as xref_text
@@ -141,10 +153,12 @@ class PDFWriter:
                     self.math_as_text += 1
                 continue
             t = html.escape(r.t, quote=False)
+            # explicit rise/size: ReportLab's defaults drop subscripts into the next line
+            bp = self.f.body_pt
             if r.sup:
-                t = f"<super>{t}</super>"
+                t = f'<super rise="{bp * 0.35:.1f}" size="{bp * 0.7:.1f}">{t}</super>'
             if r.sub:
-                t = f"<sub>{t}</sub>"
+                t = f'<sub rise="{bp * 0.2:.1f}" size="{bp * 0.7:.1f}">{t}</sub>'
             if r.b:
                 t = f"<b>{t}</b>"
             if r.i:
@@ -171,7 +185,7 @@ class PDFWriter:
             fl.append(Paragraph(mark + (f"<i>{txt}</i>" if f.id in ("ieee", "springer_lncs") else txt), self.st["aff"]))
         emails = [a.email for a in p.authors if a.email]
         if emails:
-            fl.append(Paragraph(html.escape(", ".join(emails)), self.st["aff"]))
+            fl.append(Paragraph(html.escape(email_line(p)), self.st["aff"]))
         fl.append(Spacer(1, 12))
         if f.title_page:  # APA manuscript: title page, then the abstract on its own page
             from reportlab.platypus import PageBreak
@@ -268,7 +282,7 @@ class PDFWriter:
         if cell is None:
             self.math_as_text += 1
             cell = Paragraph("<i>" + html.escape(as_text(b.latex) if b.latex else "".join(r.t for r in b.runs)) + "</i>", self.st["body0"])
-        t = Table([[cell, Paragraph(f"({n})", ParagraphStyle("eqn", parent=self.st["body0"], alignment=2))]],
+        t = Table([[cell, Paragraph(f"({n})" if n else "", ParagraphStyle("eqn", parent=self.st["body0"], alignment=2))]],
                   colWidths=[width * 0.88, width * 0.12])
         t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (0, 0), "CENTER"),
                                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),

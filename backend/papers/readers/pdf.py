@@ -77,7 +77,11 @@ def _lines(doc) -> list[PageInfo]:
                 if abs(ln["dir"][1]) > 0.2:  # rotated text (arXiv side stamps, watermarks)
                     continue
                 sizes = [s["size"] for s in spans if s["text"].strip()]
-                main = max(sizes, key=sizes.count) if sizes else spans[0]["size"]
+                weight: dict[float, int] = {}
+                for s in spans:  # the size carrying most of the text (not the most spans)
+                    if s["text"].strip():
+                        weight[round(s["size"], 1)] = weight.get(round(s["size"], 1), 0) + len(s["text"].strip())
+                main = max(weight, key=weight.get) if weight else spans[0]["size"]
                 bold = all((s["flags"] & 16) or re.search(r"bold|black|semibold|heavy", s["font"], re.I) for s in spans if s["text"].strip())
                 italic = all((s["flags"] & 2) or re.search(r"italic|oblique", s["font"], re.I) for s in spans if s["text"].strip())
                 x0, y0, x1, y1 = ln["bbox"]
@@ -105,10 +109,243 @@ def _remove_running(pages: list[PageInfo]) -> None:
             (ln.y1 < p.h * 0.09 or ln.y0 > p.h * 0.91) and (key(ln.text) in rep or re.fullmatch(r"\s*[-–]?\s*\d{1,4}\s*[-–]?\s*", ln.text)))]
 
 
+JUNK = re.compile(r"^\s*(?:a?1{6,}\s*)+$|^\s*check\s+for\s+updates\s*$|"
+                  r"^\s*(?:https?://(?:dx\.)?doi\.org/)?10\.\d{4,9}/\S+\.[gt]\d{3}\s*$", re.I)  # per-figure/table DOI lines (PLOS)
+MATH_SPAN = re.compile(r"CMMI|CMSY|CMEX|TeX_CM|Math|Euclid|Symbol|PI_chars|jsMath|MTExtra|MTSY|MTMI|STIX|Cambria\s*Math|MSAM|MSBM|rsfs|wasy|Mathematica", re.I)
+SIDEBAR_LABEL = re.compile(r"^\s*(citation|editor|received|accepted|published|copyright|data availability( statement)?|funding|"
+                           r"competing interests|conflicts? of interest|peer review history|open access|ethics statement|"
+                           r"author contributions|abbreviations|academic editor|reviewed by|edited by|correspondence|"
+                           r"specialty section|article history|keywords?)\b\s*:?", re.I)
+
+
+def _strip_junk(pages: list[PageInfo]) -> None:
+    """Hidden text in publisher badges ('a1111111111', 'Check for updates') and margin line numbers."""
+    for p in pages:
+        p.lines = [l for l in p.lines if not JUNK.match(l.text)]
+        for l in p.lines:
+            l.spans = [s for s in l.spans if not re.fullmatch(r"\s*a?1{8,}\s*", s["text"])]
+        p.lines = [l for l in p.lines if l.text.strip()]
+
+
+def _is_math_span(s: dict) -> bool:
+    t = s["text"]
+    return bool(MATH_SPAN.search(s["font"])) or any(ch == "�" or 0xE000 <= ord(ch) <= 0xF8FF for ch in t)
+
+
+def _sidebar(pages: list[PageInfo], body: float) -> list[tuple[str, str]]:
+    """Journal first pages often carry a narrow metadata column (citation, editor, dates, licence,
+    funding, competing interests). It is not body text: take it out and return (label, text) items."""
+    items: list[tuple[str, str]] = []
+    for p in pages[:2]:
+        main = [l for l in p.lines if abs(l.size - body) < 0.8 and len(l.text) > 40]
+        if len(main) < 5:
+            continue
+        bx = statistics.median(l.x0 for l in main)
+        side = [l for l in p.lines if l.x1 < bx - 4 and l.x1 < p.w * 0.42 and l.size < body - 0.4]
+        if len(side) < 4 or bx < p.w * 0.25:
+            continue
+        ids = {id(l) for l in side}
+        p.lines = [l for l in p.lines if id(l) not in ids]
+        side.sort(key=lambda l: (l.y0, l.x0))
+        cur_label, cur, prev = "", [], None
+        for l in side:
+            t = l.text.strip()
+            m = SIDEBAR_LABEL.match(t)
+            first_bold = bool(l.spans) and bool((l.spans[0]["flags"] & 16) or re.search(r"bold", l.spans[0]["font"], re.I))
+            gap = (l.y0 - prev.y1) if prev else 0
+            labelled = bool(m) and (first_bold or bool(re.match(SIDEBAR_LABEL.pattern + r"\s*$", t, re.I)) or t[m.end() - 1:m.end()] == ":")
+            if labelled or gap > l.h * 1.2:
+                if cur:
+                    items.append((cur_label, _join_lines(cur)))
+                cur_label = m.group(1).strip().title() if labelled else ""
+                cur = [t[m.end():].strip()] if labelled else [t]
+            else:
+                cur.append(t)
+            prev = l
+        if cur:
+            items.append((cur_label, _join_lines(cur)))
+    return [(a, b) for a, b in items if b or a]
+
+
+def _join_lines(parts: list[str]) -> str:
+    out = ""
+    for p in parts:
+        if not p:
+            continue
+        if out.endswith("-") and p[:1].islower() and _dehyphen(out, p):
+            out = out[:-1] + p
+        elif re.search(r"[A-Za-z0-9]-$", out) and p[:1].isalnum():
+            out = out + p  # "DE-AC05-" + "00OR22725", "Just-" + "In-Time"
+        else:
+            out = (out + " " + p).strip()
+    from backend.papers.references import join_urls
+
+    return join_urls(re.sub(r"\s+", " ", out))
+
+
+def _inline_math(doc, pages: list[PageInfo], fig_dir: Path, counters: dict) -> int:
+    """Inline math set in fonts without a usable text mapping is cropped from the page as a small image
+    (exact appearance). PDFs often split one formula over several text "lines" (stacked limits, super/
+    subscripts, an operand starting under a big operator): those pieces are reassembled first."""
+    import fitz
+
+    def words_of(l: Line) -> bool:
+        return any(not _is_math_span(s) and re.search(r"[a-z]{3,}", s["text"]) for s in l.spans if not s.get("img"))
+
+    def group_rect(l: Line, a: int, b: int) -> "fitz.Rect":
+        spans = l.spans
+        r = fitz.Rect(spans[a]["bbox"])
+        for s in spans[a:b + 1]:
+            r |= fitz.Rect(s["bbox"])
+        lead = len(spans[a]["text"]) - len(spans[a]["text"].lstrip())
+        if lead:  # start at the first glyph, not the leading space (avoids slivers of the previous letter)
+            r.x0 = min(r.x1 - 1, r.x0 + lead * spans[a]["size"] * 0.25)
+        # vertical extent from the glyphs around the baseline, never the whole PDF line (which can overlap
+        # the line above when it carries super/subscripts)
+        sz = max(l.size, tsize)  # a line set mostly in small math type still sits on a text baseline
+        base = max((s["origin"][1] for s in spans[a:b + 1] if s["size"] >= sz * 0.85), default=spans[a]["origin"][1])
+        r.y0 = max(r.y0, base - sz * 1.05)
+        r.y1 = min(max(r.y1, base + sz * 0.25), base + sz * 0.6)
+        return r
+
+    def mathish(s: dict, l: Line) -> bool:
+        return _mathish(s, l) or (s["size"] < tsize * 0.85 and bool(s["text"].strip()))
+
+    made = 0
+    tsize = 10.0
+    for pno, p in enumerate(pages):
+        page = doc[pno]
+        groups: list[list] = []  # [line, a, b, rect, dropped]
+        word_lines = [l for l in p.lines if words_of(l)]
+        tsize = statistics.median([l.size for l in word_lines]) if word_lines else 10.0
+        # short lines in a smaller font are pieces of formulas (fraction numerators/denominators, limits,
+        # super/subscripts) even when they contain words ("precision x recall" over "precision + recall")
+        small = [l for l in p.lines if len(l.text.strip()) <= 60 and l.x1 - l.x0 < 220 and
+                 max((s["size"] for s in l.spans if s["text"].strip()), default=99) < tsize * 0.85]
+        small_ids = {id(l) for l in small}
+        text_lines = [l for l in word_lines if id(l) not in small_ids]
+        # 1) math inside text lines
+        for l in text_lines:
+            spans = l.spans
+            i = 0
+            while i < len(spans):
+                if not _is_math_span(spans[i]):
+                    i += 1
+                    continue
+                a = i
+                while a > 0 and mathish(spans[a - 1], l) and not _is_math_span(spans[a - 1]) and                         (len(spans[a - 1]["text"].strip()) <= 3 or spans[a - 1]["size"] < tsize * 0.85):
+                    a -= 1  # a preceding short italic variable ("PR" in PR(i)), a small-type operand
+                b = i
+                while b + 1 < len(spans) and (_is_math_span(spans[b + 1]) or mathish(spans[b + 1], l)):
+                    b += 1
+                while b > i and not _is_math_span(spans[b]) and re.fullmatch(r"[\s,.;:]*", spans[b]["text"]):
+                    b -= 1  # trailing sentence punctuation stays text
+                groups.append([l, a, b, group_rect(l, a, b), False])
+                i = b + 1
+        if not groups and not text_lines:
+            continue
+        # 2) math-only lines on the same visual row as text are pieces of that sentence; small ones are
+        #    super/subscript fragments of a neighbouring formula; the rest are display equations (left alone)
+        others = [l for l in p.lines if id(l) not in small_ids and not words_of(l) and l.text.strip() and
+                  any(_is_math_span(s) for s in l.spans) and
+                  (len(l.text.strip()) <= 60 or all(_is_math_span(s) for s in l.spans))]  # long radical bars
+        for l in others:
+            c = (l.y0 + l.y1) / 2
+            if any(abs(c - (t.y0 + t.y1) / 2) < max(t.size, 6) * 0.6 for t in text_lines):
+                b = len(l.spans) - 1
+                while b > 0 and not _is_math_span(l.spans[b]) and re.fullmatch(r"[\s,.;:]*", l.spans[b]["text"]):
+                    b -= 1  # trailing sentence punctuation stays text
+                groups.append([l, 0, b, group_rect(l, 0, b), False])
+        if not groups:
+            continue
+        # 3) small pieces join the formula they overlap or directly follow (repeat: a numerator attached first
+        #    widens the formula so its denominator then overlaps too)
+        pending = [l for l in small if not l.used]
+        for _ in range(3):
+            left = []
+            for fl in pending:
+                fr = fitz.Rect(fl.x0, fl.y0, fl.x1, fl.y1)
+                best, best_score = None, -1e9
+                for g in groups:
+                    r = g[3]
+                    if g[4] or not (r.y0 - fl.size * 1.3 < (fr.y0 + fr.y1) / 2 < r.y1 + fl.size * 1.3):
+                        continue
+                    ov = min(fr.x1, r.x1 + 2) - max(fr.x0, r.x0 - 2)
+                    if ov > -5 and (ov > 0 or fr.x0 >= r.x1 - 2) and ov > best_score:
+                        best, best_score = g, ov
+                if best is not None:
+                    best[3] = best[3] | fr
+                    fl.used = True
+                    fl.inside = True
+                else:
+                    left.append(fl)
+            if len(left) == len(pending):
+                break
+            pending = left
+        # 4) pieces of one formula that continue each other on the same row merge into one image
+        groups.sort(key=lambda g: (round((g[3].y0 + g[3].y1) / 2), g[3].x0))
+        for i, g1 in enumerate(groups):
+            if g1[4]:
+                continue
+            for g2 in groups:
+                if g2 is g1 or g2[4] or g2[0] is g1[0]:
+                    continue
+                r1, r2 = g1[3], g2[3]
+                ov = min(r1.y1, r2.y1) - max(r1.y0, r2.y0)
+                if ov > 0.3 * min(r1.height, r2.height) and r1.x0 < r2.x0 < r1.x1 + 3:  # continues or sits under it
+                    g1[3] = r1 | r2
+                    g2[4] = True
+        # punctuation drawn inside a formula's box (the comma after a radical) is already in its image
+        for l in p.lines:
+            if not l.used and re.fullmatch(r"[\s,.;:]+", l.text) and any(
+                    not g[4] and g[0] is not l and g[3].x0 <= (l.x0 + l.x1) / 2 <= g[3].x1 and g[3].y0 <= (l.y0 + l.y1) / 2 <= g[3].y1
+                    for g in groups):
+                l.used = True
+        # 5) render; replace spans by image spans (right to left keeps indexes valid)
+        by_line: dict[int, list] = {}
+        for g in groups:
+            by_line.setdefault(id(g[0]), []).append(g)
+        for gl in by_line.values():
+            l = gl[0][0]
+            for _, a, b, r, dropped in sorted(gl, key=lambda g: -g[1]):
+                if dropped:  # merged into the image of the formula's first part
+                    l.spans = l.spans[:a] + l.spans[b + 1:]
+                    continue
+                clip = fitz.Rect(r.x0 - 0.5, r.y0 - 0.5, r.x1 + 0.5, r.y1 + 0.5)
+                counters["inline"] = counters.get("inline", 0) + 1
+                name = f"inline_{counters['inline']:03d}.png"
+                page.get_pixmap(clip=clip, matrix=fitz.Matrix(4, 4), alpha=False).save(str(fig_dir / name))
+                lead = " " if l.spans[a]["text"].startswith(" ") else ""
+                img = {"text": "", "img": f"figures/{name}", "w": clip.width, "h": clip.height, "font": "img", "flags": 0,
+                       "size": l.size, "bbox": tuple(clip), "origin": (clip.x0, clip.y1), "lead": lead,
+                       "src": "".join(s["text"] for s in l.spans[a:b + 1])}
+                l.spans = l.spans[:a] + [img] + l.spans[b + 1:]
+                made += 1
+            if all(s.get("img") or not s["text"].strip(" ,.;:") for s in l.spans):
+                l.size = max(l.size, tsize)  # now an image on a text row: no longer "small type"
+        p.lines = [l for l in p.lines if l.spans]
+    return made
+
+
+def _mathish(s: dict, l: Line) -> bool:
+    t = s["text"]
+    if _is_math_span(s):
+        return True
+    if not t.strip():
+        return True
+    if s["size"] < l.size * 0.85:  # sub/superscripts
+        return True
+    if (s["flags"] & 2 or re.search(r"italic|-it\b|oblique", s["font"], re.I)) and len(t.strip()) <= 4:
+        return True
+    return bool(re.fullmatch(r"\s*[()\[\]{}=+\-/|,;:<>^_0-9.]{1,4}\s*", t))
+
+
 def _columns(p: PageInfo) -> None:
     mid = p.w / 2
-    left = [ln for ln in p.lines if ln.x1 <= mid + p.w * 0.03 and ln.x1 - ln.x0 < p.w * 0.5]
-    right = [ln for ln in p.lines if ln.x0 >= mid - p.w * 0.03 and ln.x1 - ln.x0 < p.w * 0.5]
+    # only real text lines count (figure labels such as 'Alice', 'File A' are short and would fake columns)
+    text_lines = [ln for ln in p.lines if len(ln.text.strip()) >= 30 and ln.x1 - ln.x0 > p.w * 0.25]
+    left = [ln for ln in text_lines if ln.x1 <= mid + p.w * 0.03 and ln.x1 - ln.x0 < p.w * 0.5]
+    right = [ln for ln in text_lines if ln.x0 >= mid - p.w * 0.03 and ln.x1 - ln.x0 < p.w * 0.5]
     p.two_col = len(left) >= 6 and len(right) >= 6
     for ln in p.lines:
         if not p.two_col:
@@ -121,10 +358,26 @@ def _columns(p: PageInfo) -> None:
             ln.col = 0
 
 
+def _rows(lines: list[Line]) -> list[Line]:
+    """Visual rows top to bottom, each read left to right. Lines on one baseline with different heights
+    (a run-in heading set as its own line, text next to a tall formula) belong to the same row."""
+    out: list[Line] = []
+    row: list[Line] = []
+    rc = rh = 0.0
+    for l in sorted(lines, key=lambda l: ((l.y0 + l.y1) / 2, l.x0)):
+        c, h = (l.y0 + l.y1) / 2, max(1.0, min(l.h, l.size * 1.4))
+        if row and abs(c - rc) < min(rh, h) * 0.45:
+            row.append(l)
+        else:
+            out += sorted(row, key=lambda x: x.x0)
+            row, rc, rh = [l], c, h
+    return out + sorted(row, key=lambda x: x.x0)
+
+
 def _ordered(p: PageInfo, extra_full: list[tuple[float, float]] = ()) -> list[Line]:
     """Reading order: bands separated by full-width items; inside a band, left column then right."""
     if not p.two_col:
-        return sorted(p.lines, key=lambda l: (round(l.y0 / 2), l.x0))
+        return _rows(p.lines)
     fulls = sorted([l for l in p.lines if l.col == 0], key=lambda l: l.y0)
     seps = sorted([l.y0 for l in fulls] + [a for a, _ in extra_full])
     out: list[Line] = []
@@ -132,8 +385,8 @@ def _ordered(p: PageInfo, extra_full: list[tuple[float, float]] = ()) -> list[Li
     prev = -1.0
     for sep in seps + [p.h + 1]:
         band = [l for l in rest if prev <= l.y0 < sep]
-        out += sorted([l for l in band if l.col == 1], key=lambda l: (l.y0, l.x0))
-        out += sorted([l for l in band if l.col == 2], key=lambda l: (l.y0, l.x0))
+        out += _rows([l for l in band if l.col == 1])
+        out += _rows([l for l in band if l.col == 2])
         out += sorted([l for l in fulls if abs(l.y0 - sep) < 0.01], key=lambda l: l.x0)
         prev = sep
     seen, res = set(), []
@@ -201,8 +454,7 @@ def _graphics(page, p: PageInfo, body_size: float, out_dir: Path, counters: dict
                 taken_tables.add(cand[0])
                 region = fitz.Rect(cand[1].bbox)
                 try:
-                    rows = [[(c or "").replace("\n", " ").strip() for c in r] for r in cand[1].extract()]
-                    rows = [r for r in rows if any(r)]
+                    rows = _table_rows(p, cand[1])
                 except Exception:
                     rows = []
             if region is None:  # unruled table: lines below the caption up to the next paragraph gap
@@ -257,6 +509,31 @@ def _graphics(page, p: PageInfo, body_size: float, out_dir: Path, counters: dict
     return results
 
 
+def _table_rows(p: PageInfo, table) -> list[list[str]]:
+    """Cell texts rebuilt from the page's text lines (line breaks inside a cell become spaces, broken words
+    are rejoined). A table whose cells hold math set in symbol fonts returns [] and is kept as an image."""
+    rows = []
+    for row in table.rows:
+        out = []
+        for bb in row.cells:
+            if bb is None:
+                out.append("")
+                continue
+            x0, y0, x1, y1 = bb
+            parts = []
+            for l in sorted(p.lines, key=lambda l: (l.y0, l.x0)):
+                spans = [s for s in l.spans if x0 - 1 <= (s["bbox"][0] + s["bbox"][2]) / 2 <= x1 + 1 and
+                         y0 - 1 <= (s["bbox"][1] + s["bbox"][3]) / 2 <= y1 + 1]
+                if not spans:
+                    continue
+                if any(s.get("img") or _is_math_span(s) or re.search("[\u00bc\u00f0\u00de\u00fe]", s["text"]) for s in spans):
+                    return []
+                parts.append("".join(s["text"] for s in spans).strip())
+            out.append(_join_lines(parts))
+        rows.append(out)
+    return [r for r in rows if any(r)]
+
+
 def _good_table(rows: list[list[str]]) -> bool:
     if len(rows) < 2 or len(rows[0]) < 2:
         return False
@@ -272,40 +549,88 @@ def _is_equation(l: Line, colx: tuple[float, float], body: float) -> bool:
     w = colx[1] - colx[0]
     centred = abs(((l.x0 + l.x1) / 2) - (colx[0] + colx[1]) / 2) < w * 0.18 and (l.x1 - l.x0) < w * 0.85
     numbered = bool(re.search(r"\(\s*\d{1,3}[a-z]?\s*\)\s*$", t))
-    mathy = MATH_FONT.search(l.fonts) is not None or sum(c in MATH_CHARS for c in t) >= 2 or \
+    fonts = " ".join(s["font"] for s in l.spans if not s.get("img"))
+    if any(s.get("img") for s in l.spans):
+        return False  # a text line carrying inline math images
+    mathy = MATH_FONT.search(fonts) is not None or sum(c in MATH_CHARS for c in t) >= 2 or \
         (numbered and "=" in t and len(t) < 120 and not t.rstrip()[:-4].rstrip().endswith("."))
-    sentence = bool(re.search(r"[a-z]{4,}\s+[a-z]{3,}\s+[a-z]{3,}", t)) and not numbered
+    words = re.findall(r"\b[a-z]{3,}\b", "".join(s["text"] for s in l.spans if not _is_math_span(s)))
+    sentence = len(words) >= 4 or (bool(re.search(r"[a-z]{4,}\s+[a-z]{3,}\s+[a-z]{3,}", t)) and not numbered)
     return (centred or numbered) and mathy and not sentence
 
 
 # ------------------------------------------------------------------ runs
+_VOCAB: dict[str, int] = {}
+
+
+def _dehyphen(prefix_text: str, next_text: str) -> bool:
+    """True if a line-final hyphen should be removed (word broken by typesetting) rather than kept
+    (a real compound such as 'just-in-time'), judged from how the words appear elsewhere in the paper."""
+    m1 = re.search(r"([A-Za-z]+)-$", prefix_text)
+    m2 = re.match(r"([A-Za-z]+(?:-[A-Za-z]+)*)", next_text.lstrip())
+    if not m1 or not m2:
+        return True
+    a, b = m1.group(1).lower(), m2.group(1).lower()
+    if _VOCAB.get(f"{a}-{b}", 0) > 0 or "-" in b and _VOCAB.get(f"{a}-{b.split('-')[0]}", 0) > 0:
+        return False
+    if _VOCAB.get(a + b.split("-")[0], 0) > 0:
+        return True
+    if "-" not in b and len(b) >= 4 and any(k.endswith("-" + b) for k in _VOCAB):
+        return False  # 'finer-' + 'grained' when the paper also writes 'coarser-grained'
+    if "-" not in b and len(a) >= 4 and len(b) >= 4 and _VOCAB.get(a, 0) > 1 and _VOCAB.get(b, 0) > 1:
+        return False  # two real words (seen elsewhere, not only as these fragments), never written joined
+    return "-" not in b  # 'in-time' after 'just-' is a compound; plain fragments are joined
+
+
 def _runs(lines: list[Line], body_size: float) -> list[Inline]:
     runs: list[Inline] = []
     for k, l in enumerate(lines):
+        full = [s for s in l.spans if not s.get("img") and s["text"].strip() and s["size"] >= max(l.size, body_size) * 0.88]
+        base = statistics.median(s["origin"][1] for s in full) if full else None
         for s in l.spans:
+            if s.get("img"):
+                if s.get("lead") and runs and not runs[-1].t.endswith(" ") and not runs[-1].img:
+                    runs[-1].t += " "
+                runs.append(Inline(img=s["img"], img_w=round(s["w"], 2), img_h=round(s["h"], 2)))
+                continue
             t = s["text"]
             if not t:
                 continue
-            sup = bool(s["flags"] & 1) or (s["size"] < body_size * 0.8 and s["origin"][1] < l.y1 - l.h * 0.35 and t.strip() != "")
+            # superscripts are set smaller than the text (the PDF flag alone misfires next to tall formulas)
+            smaller = s["size"] < max(l.size, body_size) * 0.88
+            sup = smaller and (bool(s["flags"] & 1) or (s["origin"][1] < l.y1 - l.h * 0.35 and t.strip() != ""))
+            # subscripts: smaller and set below the line's baseline ("c" + "i", "tau" + "0")
+            sub = smaller and not sup and base is not None and s["origin"][1] > base + s["size"] * 0.12 and \
+                0 < len(t.strip()) <= 12 and not re.search(r"[a-z]{4,}", t)
             r = Inline(t=t, b=bool(s["flags"] & 16) or bool(re.search(r"bold", s["font"], re.I)),
-                       i=bool(s["flags"] & 2) or bool(re.search(r"italic|oblique", s["font"], re.I)), sup=sup and len(t.strip()) <= 12)
-            if runs and (runs[-1].b, runs[-1].i, runs[-1].sup) == (r.b, r.i, r.sup) and not runs[-1].cite:
+                       i=bool(s["flags"] & 2) or bool(re.search(r"italic|oblique", s["font"], re.I)), sup=sup and len(t.strip()) <= 12,
+                       sub=sub)
+            if runs and (runs[-1].b, runs[-1].i, runs[-1].sup, runs[-1].sub) == (r.b, r.i, r.sup, r.sub) and not runs[-1].cite and not runs[-1].img:
                 runs[-1].t += r.t
             else:
                 runs.append(r)
         if k < len(lines) - 1 and runs:
             last = runs[-1]
             nxt = lines[k + 1].text.lstrip()
-            if last.t.endswith("-") and nxt[:1].islower() and not last.t.endswith(" -"):
-                last.t = last.t[:-1]  # hyphenation at the line end
-            elif not last.t.endswith((" ", "/")):
+            if not last.img and re.search(r"[A-Za-z0-9]-\s+$", last.t):
+                last.t = last.t.rstrip()  # "quanti- " (trailing space span) is still a line-end hyphen
+            if last.img:
+                if not re.match(r"[.,;:)\]]", nxt):
+                    runs.append(Inline(t=" "))
+            elif re.search(r"[A-Za-z0-9]-$", last.t) and nxt[:1].isalnum():
+                if nxt[:1].islower() and _dehyphen(last.t, nxt):
+                    last.t = last.t[:-1]  # word broken across lines
+                # else: a real compound ('just-in-time', 'Just-In-Time') - keep the hyphen, no space
+            elif not last.t.endswith((" ", "/")) and not (re.search(r"(?:https?://|\b10\.)\S*\.$", last.t) and nxt[:1].isdigit()):
                 last.t += " "
+    from backend.papers.references import fix_diacritics
+
     for r in runs:
-        r.t = re.sub(r"[ \t]{2,}", " ", r.t.replace("­", ""))
+        r.t = fix_diacritics(re.sub(r"[ \t]{2,}", " ", r.t.replace("­", "")))
     if runs:
         runs[0].t = runs[0].t.lstrip()
         runs[-1].t = runs[-1].t.rstrip()
-    return [r for r in runs if r.t]
+    return [r for r in runs if r.t or r.img]
 
 
 # ------------------------------------------------------------------ main
@@ -321,12 +646,22 @@ def read(path: Path, work_dir: Path) -> dict:
     if sum(len(p.lines) for p in pages) < 20:
         raise ValueError("The PDF contains almost no text (it may be a scanned image). Use a PDF with selectable text.")
     _remove_running(pages)
+    _strip_junk(pages)
+    from collections import Counter
+
+    vocab: Counter = Counter()
+    for p in pages:
+        for l in p.lines:
+            vocab.update(w.lower() for w in re.findall(r"[A-Za-z]+(?:-[A-Za-z]+)*(?!-)\b", l.text.rstrip("-")))
+    _VOCAB.clear()
+    _VOCAB.update(vocab)
     sizes = [l.size for p in pages for l in p.lines for _ in range(max(1, len(l.text) // 10))]
     body = statistics.mode([round(s * 2) / 2 for s in sizes])
+    sidebar = _sidebar(pages, body)
     for p in pages:
         _columns(p)
-
     counters: dict[str, int] = {}
+    n_inline = _inline_math(doc, pages, fig_dir, counters)
     stream: list[tuple[int, float, object]] = []  # (page, order index, Line | Elem)
     notes: list[str] = []
     for pno, (page, p) in enumerate(zip(doc, pages)):
@@ -365,7 +700,13 @@ def read(path: Path, work_dir: Path) -> dict:
         if big >= body + 2:
             cand = [l for l in first if abs(l.size - big) < 0.6]
             title_lines = [l for l in cand if l.y0 - cand[0].y0 < big * 4.5]
-    title = " ".join(l.text.strip() for l in title_lines)
+    title = ""
+    for l in title_lines:
+        t = l.text.strip()
+        if title.endswith("-") and t[:1].islower():
+            title = title[:-1] + t if _dehyphen(title, t) else title + t
+        else:
+            title = (title + " " + t).strip()
     tids = {id(l) for l in title_lines}
 
     # ---- group lines into paragraphs / headings
@@ -386,7 +727,7 @@ def read(path: Path, work_dir: Path) -> dict:
         lines = buf
         buf = []
         text = " ".join(l.text.strip() for l in lines).strip()
-        if not text:
+        if not text and not any(sp.get("img") for l in lines for sp in l.spans):
             return
         if in_refs:
             return
@@ -425,6 +766,26 @@ def read(path: Path, work_dir: Path) -> dict:
             if not starts_body:
                 front.append(t)
                 continue
+        # run-in heading: "3.1.2 One-mode projection. We projected ..." - bold lead-in, then the paragraph
+        last_head = next((e.text for e in reversed(elems) if e.kind == "heading"), "")
+        if not in_refs and seen_heading and len(l.spans) >= 2 and special_kind(last_head) == "body":
+            k = 0
+            while k < len(l.spans) and not l.spans[k].get("img") and \
+                    ((l.spans[k]["flags"] & 16) or re.search(r"bold|black|semibold", l.spans[k]["font"], re.I) or not l.spans[k]["text"].strip()):
+                k += 1
+            lead = "".join(s["text"] for s in l.spans[:k]).strip()
+            rest = l.spans[k:]
+            if lead and rest and re.search(r"[A-Za-z]", "".join(s["text"] for s in rest)) and len(lead) < 90:
+                ln_, lv_, nu_ = heading_info(lead.rstrip(".:"))
+                para_start = not buf or buf[-1].text.rstrip().endswith((".", ":", "?", "!"))
+                if para_start and (lv_ or (len(lead.split()) <= 6 and lead.endswith((".", ":")) and lead[:1].isupper())):
+                    flush()
+                    elems.append(Elem(kind="heading", runs=[Inline(t=lead.rstrip(".:").strip())], level=min(3, lv_ or 3)))
+                    rx0 = rest[0]["bbox"][0] if "bbox" in rest[0] else l.x0
+                    l = Line(l.page, rx0, l.y0, l.x1, l.y1, rest, l.size, False, l.italic, l.fonts, l.col)
+                    t = l.text.strip()
+                    name, lvl, num = heading_info(t)
+                    short = False
         is_heading = short and not t.endswith((",", ";")) and (
             (lvl and (l.bold or l.italic or l.size > body + 0.3 or (t.isupper() and len(t) > 3)) and not re.search(r"\.\s+\w", name)) or
             (l.bold and l.size >= body - 0.2 and not t.endswith(".") and len(t.split()) <= 10 and not CAPTION.match(t) and (not buf or buf[-1].text.rstrip().endswith((".", ":")) or l.size > body + 0.3)) or
@@ -484,23 +845,37 @@ def read(path: Path, work_dir: Path) -> dict:
     # merge paragraphs split by a column/page break mid-sentence
     merged: list[Elem] = []
     for e in elems:
-        if merged and e.kind == "para" and merged[-1].kind == "para" and merged[-1].runs and e.runs:
-            prev_t = merged[-1].text
-            if prev_t and not prev_t.rstrip().endswith((".", ":", "?", "!", "”", "\"")) and e.text[:1].islower():
-                last = merged[-1].runs[-1]
-                if last.t.endswith("-"):
+        if merged and e.kind == "para" and e.runs:
+            # the paragraph this one continues: the previous paragraph, possibly with figures/tables that the
+            # layout placed at the page/column break in between (those move after the joined paragraph)
+            k = len(merged) - 1
+            while k >= 0 and merged[k].kind in ("figure", "table") and len(merged) - k <= 3:
+                k -= 1
+            host = merged[k] if k >= 0 and merged[k].kind == "para" and merged[k].runs else None
+            prev_t = host.text if host else ""
+            first = next((r.t for r in e.runs if r.t.strip()), "")
+            if host and prev_t and not prev_t.rstrip().endswith((".", ":", "?", "!", "”", "\"")) and \
+                    (first[:1].islower() or (not first and e.runs[0].img)):
+                last = host.runs[-1]
+                if last.t.endswith("-") and first[:1].islower() and _dehyphen(last.t, first):
                     last.t = last.t[:-1]
-                elif not last.t.endswith(" "):
+                elif not last.t.endswith((" ", "-")):
                     last.t += " "
-                merged[-1].runs += e.runs
+                host.runs += e.runs
                 continue
         merged.append(e)
     if any(b.kind == "equation" for e in merged if (b := e.block)):
         notes.append("Display equations were recovered from the PDF as images (a PDF does not contain their source). "
                       "Check them, or upload the LaTeX/Word source for fully editable equations.")
-    raw_text = "\n".join(l.text for p in pages for l in p.lines if not l.inside)
+    # source text for the fidelity check: body text only (no figure-internal labels, no math glyphs)
+    raw_text = "\n".join("".join(s["text"] for s in l.spans if not s.get("img") and not _is_math_span(s))
+                         for p in pages for l in p.lines if not l.inside)
+    raw_text += "\n" + "\n".join(t for _, t in sidebar)
+    if n_inline:
+        notes.append(f"{n_inline} inline math expression(s) were carried over as images cut from the PDF "
+                     "(its math fonts have no usable text). Upload the LaTeX/Word source for editable math.")
     return {"elems": merged, "title": title, "front": front, "refs": refs, "raw_text": raw_text,
-            "footnotes": footnotes, "notes": notes, "pages": len(doc)}
+            "footnotes": footnotes, "notes": notes, "pages": len(doc), "sidebar": sidebar}
 
 
 def _equation(doc, lines: list[Line], fig_dir: Path, counters: dict) -> Elem:

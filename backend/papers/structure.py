@@ -238,75 +238,118 @@ def _drop_prefix(runs: list[Inline], pat: re.Pattern) -> list[Inline]:
     return [r for r in out if r.t or r.cite or r.math]
 
 
+
+
 # ------------------------------------------------------------------ authors and affiliations
 AFFIL_CUES = re.compile(r"\b(universit|institut|college|school|department|dept\.|faculty|laborator|lab\b|centre|center|"
                         r"academy|hospital|inc\.|ltd|gmbh|corporation|corp\.|research|technologies|polytechnic|campus|"
-                        r"street|road|india|usa|china|germany|uk\b|france|japan|canada|australia)", re.I)
+                        r"division|street|road|india|usa|china|germany|uk\b|france|japan|canada|australia|"
+                        r"united states|united kingdom)", re.I)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-MARK = r"(?:\d{1,2}|[*†‡§¶#a-h])"
+MARK = r"(?:\d{1,2}|[*†‡§¶#☯✉a-h])"
+ARTICLE_TYPE = re.compile(r"^\s*((research|original|review|short|brief|technical|case|regular|full|invited)\s+)?"
+                          r"(article|paper|report|communication|note|letter|research|contribution)s?\s*$|^\s*open\s+access\s*$", re.I)
+AUTHOR_NOTE = re.compile(r"contributed equally|these authors|current address|present address|deceased|corresponding author|"
+                         r"equal contribution|joint first", re.I)
+
+
+def _clean_front_line(s: str) -> str:
+    s = re.sub(r"(?<=[a-z])ID(?=[\d☯*†‡§,\s]|$)", "", s)  # ORCID icon rendered as 'ID'
+    s = re.sub(r"\s*\(\s*(?:[A-Z]{1,4})\s*\)\s*;?", " ", s) if EMAIL.search(s) is None and re.fullmatch(r"[\s();A-Z]+", s) else s
+    return s.strip()
+
+
+def _split_affiliations(text: str) -> list[tuple[str, str]]:
+    """'1 Dept A, Univ X, 2 Lab B, Org Y' -> [('1', 'Dept A, Univ X'), ('2', 'Lab B, Org Y')]."""
+    text = re.sub(r"\s+", " ", text).strip(" ,;")
+    pos = [m for m in re.finditer(rf"(?:^|(?<=[,;]\s)|(?<=\s))({MARK})\s*(?=[A-Z])", text) if m.start() == 0 or text[m.start() - 2:m.start()].strip() in (",", ";", "")]
+    pos = [m for m in pos if m.start() == 0 or text[:m.start()].rstrip().endswith((",", ";", ".")) or text[m.start() - 1] == " " and text[:m.start()].rstrip()[-1:] in ",;."]
+    if not pos or pos[0].start() != 0:
+        return [("", text)]
+    out = []
+    for i, m in enumerate(pos):
+        end = pos[i + 1].start() if i + 1 < len(pos) else len(text)
+        out.append((m.group(1), text[m.end():end].strip(" ,;")))
+    return out
 
 
 def authors_from_front(p: Paper, lines: list[str]) -> None:
     if not lines:
         return
-    aff_lines, name_lines, emails = [], [], []
+    aff_lines, name_lines, emails, initials_mail = [], [], [], {}
+    notes = []
     for ln in lines:
-        s = ln.strip()
-        if not s:
+        s = _clean_front_line(ln)
+        if not s or ARTICLE_TYPE.match(s):
+            continue
+        if AUTHOR_NOTE.search(s) and not EMAIL.search(s):
+            notes.append(re.sub(rf"^\s*{MARK}+\s*", "", s))
             continue
         found = EMAIL.findall(s)
-        if found and len(EMAIL.sub("", s).strip(" ,;:{}()<>Email-mail")) < 6:
+        if found:
+            for m in re.finditer(r"([\w.+-]+@[\w-]+(?:\.[\w-]+)+)\s*\(\s*([A-Z]{1,4})\s*\)", s):
+                initials_mail[m.group(2)] = m.group(1)
+            rest = EMAIL.sub("", s)
+            rest = re.sub(r"\(\s*[A-Z]{1,4}\s*\)|[;,*]|e-?mail:?|correspondence:?", " ", rest, flags=re.I).strip()
             emails += found
-            continue
-        if re.match(rf"^\s*{MARK}\s*[A-Z]", s) and AFFIL_CUES.search(s) or AFFIL_CUES.search(s) and not _looks_like_names(s):
-            aff_lines.append(s)
-            emails += found
-        elif _looks_like_names(s):
+            if len(rest) < 6:
+                continue
+            s = rest
+        if _looks_like_names(s):
             name_lines.append(s)
-        elif aff_lines or len(s.split()) > 12:
+        elif re.match(rf"^\s*{MARK}\s*[A-Z]", s) or AFFIL_CUES.search(s) or aff_lines:
             aff_lines.append(s)
         else:
             name_lines.append(s)
-    # affiliations: "1 Dept..., Univ...," with leading markers
+    # affiliations: one text, split at the markers
     marks: dict[str, int] = {}
+    blocks: list[str] = []  # a line that starts with a marker starts a new affiliation; others continue it
     for s in aff_lines:
-        m = re.match(rf"^\s*({MARK})\s*(.+)$", s)
-        text = EMAIL.sub("", m.group(2) if m else s).strip(" ,;")
-        if not text:
-            continue
-        if not m and p.affiliations and not re.match(r"^[A-Z]", text):
-            p.affiliations[-1] += " " + text  # continuation line
-            continue
-        p.affiliations.append(text)
-        if m:
-            marks[m.group(1)] = len(p.affiliations) - 1
+        if not blocks or re.match(rf"^\s*{MARK}\s*[A-Z]", s):
+            blocks.append(s)
+        else:
+            blocks[-1] += " " + s
+    for block in blocks:
+        for mk, text in _split_affiliations(block):
+            if not text:
+                continue
+            p.affiliations.append(text)
+            if mk:
+                marks[mk] = len(p.affiliations) - 1
     joined = " , ".join(name_lines)
     joined = re.sub(r"\s+and\s+|\s*&\s*", ", ", joined)
     for raw in [x.strip() for x in joined.split(",") if x.strip()]:
         m = re.match(rf"^(.*?[a-zà-ÿ.])\s*((?:{MARK}\s*,?\s*)+)$", raw)
         name, sup = (m.group(1), m.group(2)) if m else (raw, "")
-        name = re.sub(r"[*†‡§¶]+$", "", name).strip(" ,")
-        if not re.search(r"[A-Za-z]", name) or len(name.split()) > 6:
+        name = re.sub(r"[*†‡§¶☯✉]+$", "", name).strip(" ,")
+        if not re.search(r"[A-Za-z]", name) or len(name.split()) > 6 or len(name.split()) < 2 and "." not in name:
             continue
-        a = Author(name=name, corresponding="*" in raw)
+        a = Author(name=name, corresponding="*" in raw or "✉" in raw)
         for mk in re.findall(MARK, sup):
-            if mk in marks:
+            if mk in marks and marks[mk] not in a.affiliations:
                 a.affiliations.append(marks[mk])
         if not a.affiliations and len(p.affiliations) == 1:
             a.affiliations = [0]
         p.authors.append(a)
-    for e in emails:  # attach emails to authors by name similarity
+    for a in p.authors:  # emails given with initials: "x@y.com (JB)"
+        ini = "".join(w[0] for w in re.findall(r"[A-ZÀ-Ý][\w'’-]*", a.name))
+        if ini in initials_mail:
+            a.email = initials_mail.pop(ini)
+    rest = [e for e in emails if e not in {a.email for a in p.authors}]
+    for e in rest:  # otherwise by name similarity
         local = re.sub(r"[^a-z]", "", e.split("@")[0].lower())
         best = next((a for a in p.authors if not a.email and any(part.lower()[:4] in local for part in a.name.split() if len(part) > 2)), None)
         if best:
             best.email = e
-        elif p.authors and not p.authors[0].email:
+        elif p.authors and not any(a.email for a in p.authors):
             p.authors[0].email = e
+    if notes:
+        p.meta["author_notes"] = notes
 
 
 def _looks_like_names(s: str) -> bool:
-    t = re.sub(rf"(?<=[a-z]){MARK}+", "", s)
-    t = re.sub(r"[*†‡§¶]", "", t)
+    t = re.sub(rf"(?<=[a-zà-ÿ.]){MARK}+", "", s)
+    t = re.sub(r"[*†‡§¶☯✉]", "", t)
     parts = [x.strip() for x in re.split(r",|\band\b|&", t) if x.strip()]
     if not parts:
         return False
