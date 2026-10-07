@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
-from backend.api import brands, documents, generation, media, papers, projects, settings, templates, video  # noqa: E402
+from backend.api import branddocs, brands, documents, generation, media, papers, projects, settings, templates, video  # noqa: E402
 from backend.branding.brand_profile import BrandStore, ensure_default_brands  # noqa: E402
 from backend.pipeline.jobs import runner  # noqa: E402
 from backend.pipeline.orchestrator import register_handlers  # noqa: E402
@@ -56,6 +56,12 @@ def startup() -> None:
         recover_stale()  # research-paper conversions interrupted by a restart
     except Exception as exc:
         log.warning("Paper recovery skipped", error=type(exc).__name__)
+    try:
+        from backend.branddocs.service import recover_stale as recover_branddocs
+
+        recover_branddocs()  # brand-document conversions interrupted by a restart
+    except Exception as exc:
+        log.warning("Brand document recovery skipped", error=type(exc).__name__)
     log.info("Content Studio backend ready", data=str(s.data_path), offline_guard=network_guard.is_installed())
 
 
@@ -68,7 +74,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Zensar Content Studio", version="1.0.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
                    allow_methods=["*"], allow_headers=["*"])
-for r in (documents, projects, generation, brands, templates, settings, media, video, papers):
+for r in (documents, projects, generation, brands, templates, settings, media, video, papers, branddocs):
     app.include_router(r.router)
 app.include_router(video.script_router)
 

@@ -127,6 +127,36 @@ def _strip_junk(pages: list[PageInfo]) -> None:
         p.lines = [l for l in p.lines if l.text.strip()]
 
 
+def _vector_bullets(doc, pages: list[PageInfo]) -> None:
+    """Designed documents often draw list bullets as small filled circles instead of a bullet character:
+    give those lines a text bullet so they are read as list items."""
+    for pno, p in enumerate(pages):
+        try:
+            dots = [d["rect"] for d in doc[pno].get_drawings() if d.get("fill") and 1.5 <= d["rect"].width <= 8 and
+                    1.5 <= d["rect"].height <= 8 and any(it[0] == "c" for it in d["items"])]
+        except Exception:
+            continue
+        for r in dots:
+            cy = (r.y0 + r.y1) / 2
+            ln = min((l for l in p.lines if l.y0 - 1 <= cy <= l.y1 + 1 and 0 < l.x0 - r.x1 < 26 and l.spans),
+                     key=lambda l: l.x0 - r.x1, default=None)
+            if ln is not None and not BULLET.match(ln.text):
+                s0 = dict(ln.spans[0])
+                s0["text"] = "• "
+                s0["bbox"] = (r.x0, s0["bbox"][1], r.x1, s0["bbox"][3])
+                ln.spans.insert(0, s0)
+                ln.x0 = r.x0
+
+
+def _label_start(l) -> bool:
+    """A line that starts with a run-in label in bold/medium type ("Clarity: what matters...")."""
+    s = next((x for x in l.spans if x["text"].strip()), None)
+    if not s:
+        return False
+    strong = bool(s["flags"] & 16) or bool(re.search(r"bold|medium|semibold|black|heavy", s["font"], re.I))
+    return strong and bool(re.match(r"^\s*[A-Z][\w &/'’-]{0,30}:", l.text))
+
+
 def _is_math_span(s: dict) -> bool:
     t = s["text"]
     return bool(MATH_SPAN.search(s["font"])) or any(ch == "�" or 0xE000 <= ord(ch) <= 0xF8FF for ch in t)
@@ -602,7 +632,7 @@ def _runs(lines: list[Line], body_size: float) -> list[Inline]:
             # subscripts: smaller and set below the line's baseline ("c" + "i", "tau" + "0")
             sub = smaller and not sup and base is not None and s["origin"][1] > base + s["size"] * 0.12 and \
                 0 < len(t.strip()) <= 12 and not re.search(r"[a-z]{4,}", t)
-            r = Inline(t=t, b=bool(s["flags"] & 16) or bool(re.search(r"bold", s["font"], re.I)),
+            r = Inline(t=t, b=bool(s["flags"] & 16) or bool(re.search(r"bold|medium|semibold|demibold|heavy|black", s["font"], re.I)),
                        i=bool(s["flags"] & 2) or bool(re.search(r"italic|oblique", s["font"], re.I)), sup=sup and len(t.strip()) <= 12,
                        sub=sub)
             if runs and (runs[-1].b, runs[-1].i, runs[-1].sup, runs[-1].sub) == (r.b, r.i, r.sup, r.sub) and not runs[-1].cite and not runs[-1].img:
@@ -634,7 +664,8 @@ def _runs(lines: list[Line], body_size: float) -> list[Inline]:
 
 
 # ------------------------------------------------------------------ main
-def read(path: Path, work_dir: Path) -> dict:
+def read(path: Path, work_dir: Path, general: bool = False) -> dict:
+    """general=True: any document (no paper front matter; the title is the largest text on page 1)."""
     import fitz
 
     doc = fitz.open(str(path))
@@ -647,6 +678,8 @@ def read(path: Path, work_dir: Path) -> dict:
         raise ValueError("The PDF contains almost no text (it may be a scanned image). Use a PDF with selectable text.")
     _remove_running(pages)
     _strip_junk(pages)
+    if general:
+        _vector_bullets(doc, pages)
     from collections import Counter
 
     vocab: Counter = Counter()
@@ -693,7 +726,7 @@ def read(path: Path, work_dir: Path) -> dict:
     footnotes = [x.text.strip() for x in foot]
 
     # ---- title (page 1, largest text in the upper part)
-    first = [x for pg, _, x in stream if pg == 0 and isinstance(x, Line) and x.y0 < pages[0].h * 0.45]
+    first = [x for pg, _, x in stream if pg == 0 and isinstance(x, Line) and (general or x.y0 < pages[0].h * 0.45)]
     title_lines: list[Line] = []
     if first:
         big = max(l.size for l in first)
@@ -759,7 +792,7 @@ def read(path: Path, work_dir: Path) -> dict:
         name, lvl, num = heading_info(t)
         short = len(t) < 110 and len(t.split()) <= 14
         # front matter: page-1 lines between the title and the abstract / first section heading
-        if not seen_abstract and not seen_heading and pno == 0 and not in_refs:
+        if not general and not seen_abstract and not seen_heading and pno == 0 and not in_refs:
             starts_body = re.match(r"^\s*(abstract|summary|key\s*words?|index\s+terms)\b", t, re.I) or \
                 (lvl and short and (l.bold or t.isupper() or l.size > body + 0.3) and not re.search(r"[,@]", t)) or \
                 bool(REFS_HEAD.match(t))
@@ -826,7 +859,7 @@ def read(path: Path, work_dir: Path) -> dict:
         if buf:
             prev = buf[-1]
             gap = l.y0 - prev.y1
-            ends = prev.text.rstrip().endswith((".", ":", "?", "!"))
+            ends = prev.text.rstrip().rstrip("”’\"')").endswith((".", ":", "?", "!"))  # also after a closing quote
             indent = l.x0 - (_col_bounds(pages[l.page], l.col)[0] if l.col else min(ll.x0 for ll in pages[l.page].lines)) > body * 0.6
             if l.page != prev.page or (l.col != prev.col and l.y0 < prev.y0 - prev.h):
                 new_para = ends and (indent or gap > 0)  # page / column break: continue the paragraph unless it ended
@@ -834,7 +867,7 @@ def read(path: Path, work_dir: Path) -> dict:
                 new_para = gap > max(prev.h, l.h) * 0.5  # from a full-width block into a column (or back)
             else:
                 new_para = gap > max(prev.h, l.h) * 0.75 or gap < -prev.h * 2 or (indent and ends and l.x0 - prev.x0 > body * 0.6)
-            new_para = new_para or bool(BULLET.match(t)) or abs(l.size - prev.size) > 1.2 or (l.bold != prev.bold and len(t) < 60 and ends) or \
+            new_para = new_para or bool(BULLET.match(t)) or (general and _label_start(l)) or abs(l.size - prev.size) > 1.2 or (l.bold != prev.bold and len(t) < 60 and ends) or \
                 (_is_equation(l, _col_bounds(pages[l.page], l.col) if l.col else (pages[l.page].w * 0.08, pages[l.page].w * 0.92), body) !=
                  _is_equation(prev, _col_bounds(pages[prev.page], prev.col) if prev.col else (pages[prev.page].w * 0.08, pages[prev.page].w * 0.92), body))
             if new_para:

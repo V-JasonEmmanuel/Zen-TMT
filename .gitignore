@@ -10,6 +10,7 @@
 # Models are downloaded by start.bat (scripts/fetch_models.py)
 /models/embeddings/
 /models/tts/
+/models/imagegen/
 
 # Licensed brand fonts are installed per machine, never committed
 brands/*/assets/fonts/

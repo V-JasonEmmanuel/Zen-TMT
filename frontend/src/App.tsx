@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppLayout } from "./layouts/AppLayout";
+import { BrandDocDetail } from "./pages/BrandDocDetail";
+import { BrandDocuments } from "./pages/BrandDocuments";
 import { BrandEditor } from "./pages/BrandEditor";
 import { Brands } from "./pages/Brands";
 import { Dashboard } from "./pages/Dashboard";
@@ -46,6 +48,8 @@ export default function App() {
             <Route path="/brands/:id" element={<BrandEditor />} />
             <Route path="/papers" element={<ResearchPapers />} />
             <Route path="/papers/:id" element={<PaperDetail />} />
+            <Route path="/brand-docs" element={<BrandDocuments />} />
+            <Route path="/brand-docs/:id" element={<BrandDocDetail />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/media" element={<MediaLibrary />} />
             <Route path="/settings" element={<SettingsPage />} />

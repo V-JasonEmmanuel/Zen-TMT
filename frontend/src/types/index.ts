@@ -429,3 +429,58 @@ export interface PaperDoc {
   warnings: string[];
   meta: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------- brand documents
+export interface BrandDocTemplate {
+  id: string;
+  name: string;
+  brand_id: string;
+  source_file: string;
+  created_at: string;
+  page: { w: number; h: number };
+  pages: Record<string, { source_page: number; background: string; has_card: boolean; has_photo: boolean; columns: number }>;
+  page_images: string[];
+  colors: { role: string; color: string }[];
+  font_family: string;
+  font_installed: string[] | null;
+  font_fallback: string;
+  styles: Record<string, { family: string; weight: number; size: number; leading: number; color: string }>;
+  label_text: string;
+  footer: string;
+  boilerplate: string[];
+  image_style: string;
+  notes: string[];
+}
+
+export interface BrandDocImage { key: string; file: string; prompt: string; generated: boolean; section: string }
+
+export interface BrandDocReport {
+  pages: number;
+  sections: number;
+  words: number;
+  conclusion: string;
+  authors: string[];
+  fidelity: { source_words: number; coverage: number; missing_sample: string[] };
+  font: { family: string; using_reference: boolean; fallback: string };
+  notes: string[];
+}
+
+export interface BrandDocMeta {
+  id: string;
+  filename: string;
+  source_kind: string;
+  template_id: string;
+  options: { label: string | null; title: string; images: number; use_llm: boolean; generate_images: boolean; seed: number };
+  status: "queued" | "running" | "done" | "failed";
+  message: string;
+  progress: number;
+  error: string;
+  created_at: string;
+  updated_at: string;
+  title: string;
+  report: BrandDocReport | null;
+  images: BrandDocImage[];
+  pdf: string;
+  pages: string[];
+  running?: boolean;
+}

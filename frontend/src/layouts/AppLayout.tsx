@@ -1,4 +1,4 @@
-import { FolderOpen, GraduationCap, LayoutDashboard, LayoutTemplate, Library, Palette, Plus, Settings, ShieldCheck } from "lucide-react";
+import { FileStack, FolderOpen, GraduationCap, LayoutDashboard, LayoutTemplate, Library, Palette, Plus, Settings, ShieldCheck } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAsync } from "../hooks/useAsync";
 import { api } from "../services/api";
@@ -8,6 +8,7 @@ const NAV = [
   { to: "/new", label: "New project", icon: Plus },
   { to: "/projects", label: "Projects", icon: FolderOpen },
   { to: "/papers", label: "Research Papers", icon: GraduationCap },
+  { to: "/brand-docs", label: "Brand Documents", icon: FileStack },
   { to: "/templates", label: "Templates", icon: LayoutTemplate },
   { to: "/media", label: "Media Library", icon: Library },
   { to: "/brands", label: "Brand Manager", icon: Palette },

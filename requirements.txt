@@ -39,3 +39,5 @@ pytest>=8.0
 #   pip install -r requirements-prepare.txt
 # Offline OCR for scanned PDFs:
 #   pip install rapidocr_onnxruntime
+# Brand Documents: local image generation (optional; needs torch, see requirements-prepare.txt)
+diffusers>=0.30,<0.33

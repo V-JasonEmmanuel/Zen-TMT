@@ -1,6 +1,7 @@
 """Download the embedding model (ONNX) once, during setup - no torch/transformers needed.
 
-    python scripts/fetch_models.py
+    python scripts/fetch_models.py            # embeddings (always)
+    python scripts/fetch_models.py --images   # + the local image model for Brand Documents (~2.2 GB, optional)
 
 Fetches the official ONNX export + tokenizer of sentence-transformers/all-MiniLM-L6-v2 from the
 Hugging Face hub into ./models/embeddings/, verifies it runs, and exits. After this the
@@ -38,7 +39,26 @@ def download(url: str, dest: Path) -> None:
     tmp.replace(dest)
 
 
+IMAGE_REPO = "Lykon/dreamshaper-8-lcm"  # Stable Diffusion 1.5 (LCM), CreativeML OpenRAIL-M - commercial use allowed
+
+
+def fetch_image_model() -> int:
+    """Brand Documents create images on this computer: fp16 single-file checkpoint + configs (no safety-checker weights)."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        print("huggingface_hub is not installed: pip install diffusers")
+        return 1
+    out = ROOT / "models" / "imagegen" / "dreamshaper-8-lcm"
+    print(f"Downloading the image model {IMAGE_REPO} (~2.2 GB) ...")
+    snapshot_download(IMAGE_REPO, local_dir=str(out), allow_patterns=["*.json", "*.txt", "tokenizer/*", "DreamShaper8_LCM.safetensors"])
+    print(f"Image model ready ({out})")
+    return 0
+
+
 def main() -> int:
+    if "--images" in sys.argv and fetch_image_model():
+        return 1
     out = onnx_dir_for(MODEL)
     out.mkdir(parents=True, exist_ok=True)
     for name, url in FILES.items():

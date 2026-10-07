@@ -1,5 +1,5 @@
 import type {
-  BrandSummary, BrandView, ContentPlan, Contract, DocumentInfo, Job, MediaAsset, OutputFile, Project, RuntimeSettings,
+  BrandDocMeta, BrandDocTemplate, BrandSummary, BrandView, ContentPlan, Contract, DocumentInfo, Job, MediaAsset, OutputFile, Project, RuntimeSettings,
   PaperDoc, PaperFormat, PaperMeta, SourceMapping, Suggestion, SystemStatus, TemplateItem, Timeline,
 } from "../types";
 
@@ -92,6 +92,38 @@ export const api = {
   // templates
   templateGallery: (brandId: string) => request<TemplateItem[]>(`/api/templates/gallery?brand_id=${encodeURIComponent(brandId)}`),
 
+  // brand documents
+  brandDocStatus: () => request<{ images: { available: boolean; message: string; model: string; license: string } }>("/api/branddocs/status"),
+  brandDocTemplates: () => request<BrandDocTemplate[]>("/api/branddocs/templates"),
+  brandDocTemplate: (id: string) => request<BrandDocTemplate>(`/api/branddocs/templates/${id}`),
+  createBrandDocTemplate(file: File, name: string, brand_id: string) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("name", name);
+    fd.append("brand_id", brand_id);
+    return request<BrandDocTemplate>("/api/branddocs/templates", { method: "POST", body: fd });
+  },
+  updateBrandDocTemplate: (id: string, changes: Partial<Pick<BrandDocTemplate, "name" | "label_text" | "footer" | "boilerplate" | "image_style" | "font_fallback">>) =>
+    request<BrandDocTemplate>(`/api/branddocs/templates/${id}`, { method: "PUT", body: json(changes) }),
+  deleteBrandDocTemplate: (id: string) => request<{ deleted: string }>(`/api/branddocs/templates/${id}`, { method: "DELETE" }),
+  brandDocs: () => request<BrandDocMeta[]>("/api/branddocs"),
+  brandDoc: (id: string) => request<BrandDocMeta>(`/api/branddocs/${id}`),
+  convertBrandDoc(opts: { file?: File; text?: string; name?: string; template_id: string; label?: string; title?: string; images: number; use_llm: boolean; generate_images: boolean }) {
+    const fd = new FormData();
+    if (opts.file) fd.append("file", opts.file);
+    if (opts.text) fd.append("text", opts.text);
+    if (opts.name) fd.append("name", opts.name);
+    fd.append("template_id", opts.template_id);
+    if (opts.label !== undefined) fd.append("label", opts.label);
+    if (opts.title) fd.append("title", opts.title);
+    fd.append("images", String(opts.images));
+    fd.append("use_llm", String(opts.use_llm));
+    fd.append("generate_images", String(opts.generate_images));
+    return request<BrandDocMeta>("/api/branddocs", { method: "POST", body: fd });
+  },
+  rerunBrandDoc: (id: string, options: Record<string, unknown>) =>
+    request<BrandDocMeta>(`/api/branddocs/${id}/rerun`, { method: "POST", body: json(options) }),
+  deleteBrandDoc: (id: string) => request<{ deleted: string }>(`/api/branddocs/${id}`, { method: "DELETE" }),
   // research papers
   paperFormats: () => request<PaperFormat[]>("/api/papers/formats"),
   papers: () => request<PaperMeta[]>("/api/papers"),
@@ -170,3 +202,8 @@ export const paperFileUrl = (id: string, rel: string, download = false, v?: stri
 
 export const brandAssetUrl = (brandId: string, kind: "assets" | "references", name: string) =>
   `/api/brands/${brandId}/assets/${kind}/${encodeURIComponent(name)}`;
+
+export const brandDocFileUrl = (id: string, rel: string, download = false, v?: string) =>
+  `/api/branddocs/${id}/files/${rel}${download ? "?download=true" : v ? `?v=${encodeURIComponent(v)}` : ""}`;
+
+export const brandTemplateFileUrl = (id: string, rel: string) => `/api/branddocs/templates/${id}/files/${rel}`;

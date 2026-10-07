@@ -175,6 +175,42 @@ Review and correct the result in the app (front matter, section levels and types
 
 > For the most exact conversion, upload the LaTeX or Word source rather than a PDF: equations then stay editable, and BibTeX references are used as they are. PDFs do not contain equation source, so their equations are carried over as images and flagged.
 
+## Brand Documents: any document in your company's branded PDF
+
+**Brand Documents** in the sidebar turns a text, PDF or Word document into a branded PDF. The PDF follows a reference document, such as a Zensar white paper, and has images created for its content.
+
+**1. Learn a template from a reference PDF.** Upload a branded PDF once. Everything is measured from it, never assumed:
+* **Page designs.** Each page is classified as cover, opening card page, two-column text page, image page, conclusion card or back cover.
+* **Colours.** Sampled from the rendered pages, so blend modes and transparency count.
+* **Type scale.** Headings, body, emphasis, run-in labels, footer.
+* **Geometry.** Columns, dividers, cards and their radii, rules, heading dashes, bullets.
+* **Text.** The footer pattern (`{year}`, `{page}`) and the back-cover company text.
+* **Artwork.** Logo lockups, patterns and background shapes, kept as vectors and replayed exactly.
+* **Image style.** The colour statistics of the reference photos.
+
+The name, cover label, footer, back-cover text and image style can be edited. If the reference's typeface (e.g. Graphik) is not installed, the brand's fallback font is used and the app says so. Put the licensed font files in `brands/<brand>/assets/fonts` to use the exact typeface; `.otf` files are converted automatically.
+
+**2. Convert.** Upload a PDF, `.docx`, Markdown or text file, or paste text.
+
+The wording is kept exactly. Headings that were set over several lines are joined. Lists, figures, tables, run-in labels ("Clarity: …"), a conclusion section and an "Authored by" block are recognised.
+
+The document is then laid out in the template:
+1. Cover with the title.
+2. The opening section in the coloured card.
+3. Two-column text pages.
+4. Image pages with a photo that fades into the page.
+5. The conclusion in the closing card.
+6. The back cover with the authors and company text.
+
+A check confirms that every word of the source reached the PDF.
+
+**Images created on this computer.** A local Stable Diffusion 1.5 model (DreamShaper 8 LCM, CreativeML OpenRAIL-M, which allows commercial use) creates the cover image and one to three section images:
+* The prompts come from each section's heading and key terms. When a local LLM is running, it describes a scene for each section instead.
+* The image style comes from the reference.
+* Each image is colour-graded to the reference photos.
+
+It runs in a separate worker process. It uses the GPU when PyTorch has CUDA; on the CPU, each image takes 1–2 minutes. Install the model once with `python scripts/fetch_models.py --images` (about 2.2 GB). Without it, brand-coloured artwork is used instead. Nothing is sent to the internet.
+
 ## Try it: showcase samples
 
 `samples/` contains a fictional case study, **InvoiceFlow**, that exercises every feature:
