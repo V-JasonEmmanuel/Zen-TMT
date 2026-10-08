@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from backend.branddocs.model import DocTemplate
+from backend.branddocs.model import ANALYSIS_VERSION, DocTemplate
 from backend.utils.config import get_settings
 from backend.utils.files import new_id
 from backend.utils.logging import get_logger
@@ -56,7 +56,37 @@ def load_template(tid: str) -> DocTemplate:
     f = tdir(tid) / "template.json"
     if not f.exists():
         raise KeyError(tid)
-    return DocTemplate.model_validate_json(f.read_text(encoding="utf-8"))
+    t = DocTemplate.model_validate_json(f.read_text(encoding="utf-8"))
+    if t.version < ANALYSIS_VERSION and (tdir(tid) / "reference.pdf").exists():
+        t = _reanalyse(t)
+    return t
+
+
+def _reanalyse(old: DocTemplate) -> DocTemplate:
+    """Re-learn a template with the current analyser; the user's edits (name, label, footer, back text, image
+    style, fallback font) are kept."""
+    from backend.branddocs.reference import analyze
+
+    try:
+        t = analyze(tdir(old.id) / "reference.pdf", old.id, old.name, old.brand_id)
+    except Exception as exc:
+        log.warning("Template re-analysis failed", template=old.id, error=str(exc)[:160])
+        old.version = ANALYSIS_VERSION
+        return old
+    t.source_file, t.created_at, t.font_fallback = old.source_file, old.created_at, old.font_fallback
+    t.cover.label_text = old.cover.label_text or t.cover.label_text
+    if old.back.boilerplate:
+        t.back.boilerplate = old.back.boilerplate
+    pattern = next((p.footer.pattern for p in old.pages.values() if p.footer), "")
+    if pattern:
+        for p in t.pages.values():
+            if p.footer:
+                p.footer.pattern = pattern
+    if old.image_style.prompt_style:
+        t.image_style.prompt_style = old.image_style.prompt_style
+    t.version = ANALYSIS_VERSION
+    save_template(t)
+    return t
 
 
 def save_template(t: DocTemplate) -> None:
@@ -151,6 +181,7 @@ def create_template(filename: str, src: Path, name: str, brand_id: str = "") -> 
         t = analyze(d / "reference.pdf", tid, name.strip() or Path(filename).stem, brand_id)
         t.source_file = filename
         t.created_at = _now()
+        t.version = ANALYSIS_VERSION
         if brand_id:
             try:
                 typo = json.loads((get_settings().brands_path / brand_id / "typography.json").read_text(encoding="utf-8"))

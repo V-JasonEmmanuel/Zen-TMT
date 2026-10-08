@@ -57,6 +57,7 @@ class Card(BaseModel):
     divider_color: str = ""
     divider_width: float = 0.25
     separator_rules: bool = False  # paragraphs separated by thin rules (conclusion card)
+    columns: int = 2  # text columns inside the card (1 for full-width bands)
 
 
 class Photo(BaseModel):
@@ -123,8 +124,12 @@ class ImageStyle(BaseModel):
     palette: list[str] = Field(default_factory=list)
 
 
+ANALYSIS_VERSION = 4  # templates analysed by an older version are re-analysed from their reference.pdf
+
+
 class DocTemplate(BaseModel):
     id: str
+    version: int = 0
     name: str
     brand_id: str = ""
     source_file: str = ""

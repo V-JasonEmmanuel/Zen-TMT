@@ -204,6 +204,34 @@ class Figure(Flowable):
             self.caption.drawOn(self.canv, 0, 0)
 
 
+MIN_COL = 34.0  # narrowest readable table column (pt)
+
+
+class Scaled(Flowable):
+    """A flowable laid out at its natural width and drawn scaled down to fit the column (wide tables)."""
+
+    def __init__(self, inner: Flowable, natural_w: float, k: float):
+        super().__init__()
+        self.inner, self.natural_w, self.k = inner, natural_w, k
+        self.spaceBefore = getattr(inner, "spaceBefore", 0)
+        self.spaceAfter = getattr(inner, "spaceAfter", 0)
+
+    def wrap(self, aw, ah):
+        w, h = self.inner.wrap(self.natural_w, ah / self.k if ah < 10 ** 5 else 10 ** 6)
+        self.width, self.height = w * self.k, h * self.k
+        return self.width, self.height
+
+    def split(self, aw, ah):
+        parts = self.inner.split(self.natural_w, ah / self.k)
+        return [Scaled(x, self.natural_w, self.k) for x in parts] if len(parts) > 1 else []
+
+    def draw(self):
+        self.canv.saveState()
+        self.canv.scale(self.k, self.k)
+        self.inner.drawOn(self.canv, 0, 0)
+        self.canv.restoreState()
+
+
 class Marker(Flowable):
     """Zero-size marker: an image page may start here (section with a generated image)."""
 
@@ -381,7 +409,7 @@ class Composer:
             registerFontFamily(n, normal=n, bold=b, italic=self._font(w, True), boldItalic=self._font(max(500, w + 200), True))
 
     def _ps(self, name, st: TextStyle, color, **kw) -> ParagraphStyle:
-        lead = st.leading or st.size * 1.25
+        lead = max(st.leading or st.size * 1.25, st.size * 1.12)  # never tighter than the type itself
         return ParagraphStyle(name, fontName=self._font(st.weight), fontSize=st.size, leading=lead, textColor=color,
                               alignment=TA_LEFT, spaceAfter=kw.pop("spaceAfter", st.space_after), **kw)
 
@@ -474,7 +502,9 @@ class Composer:
             elif b.kind == "equation":
                 out.append(Paragraph(f"<i>{html.escape(b.latex or ''.join(r.t for r in b.runs))}</i>", body))
             elif b.kind == "table":
-                tf = self.table(b, col_w)
+                img = self.doc.base_dir / b.image if b.image else None
+                too_wide = b.rows and max(len(r) for r in b.rows) * MIN_COL > col_w
+                tf = None if (too_wide and img and img.exists()) else self.table(b, col_w)  # the source's own table picture
                 if tf is not None:
                     if b.caption:
                         out.append(Paragraph(self.markup(b.caption), self.st["caption"]))
@@ -500,7 +530,17 @@ class Composer:
         data = [[Paragraph(html.escape(c), head if i == 0 else cell) for c in r + [""] * (n - len(r))] for i, r in enumerate(rows)]
         lens = [max(4, max(len(r[j]) if j < len(r) else 0 for r in rows)) for j in range(n)]
         tot = sum(min(x, 40) for x in lens)
-        widths = [col_w * min(x, 40) / tot for x in lens]
+        natural = max(col_w, n * MIN_COL)  # every column stays readable; a wider table is scaled to the column
+        widths = [natural * min(x, 40) / tot for x in lens]
+        short = [i for i, w in enumerate(widths) if w < MIN_COL]
+        if short:  # lift narrow columns to the minimum, taking the width from the wide ones
+            need = sum(MIN_COL - widths[i] for i in short)
+            wide = [i for i in range(n) if i not in short]
+            spare = sum(widths[i] - MIN_COL for i in wide) or 1
+            for i in short:
+                widths[i] = MIN_COL
+            for i in wide:
+                widths[i] -= need * (widths[i] - MIN_COL) / spare
         t = Table(data, colWidths=widths, repeatRows=1)
         rule = _hex(SENT["rule"])
         t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBELOW", (0, 0), (-1, 0), 0.6, rule),
@@ -508,6 +548,8 @@ class Composer:
                                ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 3),
                                ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
         t.spaceBefore, t.spaceAfter = 4, self.body_st.space_after
+        if natural > col_w + 0.5:
+            return Scaled(t, natural, col_w / natural)
         return t
 
     def section_story(self, s: DocSection, col_w: float, first: bool) -> list[Flowable]:
@@ -553,6 +595,11 @@ class Composer:
             c.setLineWidth(s.width or 0.5)
         c.drawPath(p, fill=1 if s.fill else 0, stroke=1 if s.stroke else 0, fillMode=1 if s.even_odd else 0)
         c.restoreState()
+
+    def art(self, c, d: PageDesign):
+        for a in d.artwork:
+            for s in a.shapes:
+                self.shape(c, s)
 
     def paint(self, c, d: PageDesign, art=True):
         c.setFillColor(_hex(d.background))
@@ -694,16 +741,26 @@ class Composer:
             lines = lines or [self.doc.title]
             st = ParagraphStyle("ct", fontName=fn, fontSize=size, leading=lead, textColor=_hex(cv.title.color))
             p = Paragraph("<br/>".join(html.escape(x) for x in lines), st)
-            p.wrap(x1 - x0 + 40, 10 ** 6)
-            p.drawOn(c, x0, self.Y(ybot + (lead - size) * 0.3))
+            w, h = p.wrap(x1 - x0 + 40, 10 ** 6)
+            if ytop < self.H * 0.45:  # the reference title starts high (under the logo): grow downwards
+                p.drawOn(c, x0, self.Y(ytop + h))
+                shift = max(0.0, ytop + h - ybot)
+            else:  # the reference title sits low: grow upwards from its baseline
+                p.drawOn(c, x0, self.Y(ybot + (lead - size) * 0.3))
+                shift = 0.0
+        else:
+            shift = 0.0
         label = self.label if self.label is not None else cv.label_text
         if label and cv.label_pos:
+            c.saveState()
+            c.translate(0, -shift)
             if cv.marker:
                 for s in cv.marker.shapes:
                     self.shape(c, s)
             c.setFont(self._font(cv.label.weight), cv.label.size)
             c.setFillColor(_hex(cv.label.color))
             c.drawString(cv.label_pos[0], self.Y(cv.label_pos[1] + cv.label.size * 0.95), label)
+            c.restoreState()
 
     def card_page(self, c, d: PageDesign, sec: DocSection, conclusion=False) -> tuple[list, float]:
         """Draw the card holding a section. Returns (story that did not fit, y of the card bottom)."""
@@ -714,7 +771,7 @@ class Composer:
         inner_x0, inner_x1 = x0 + cd.pad_x, x1 - cd.pad_x
         mid = (x0 + x1) / 2
         gut = max(14.0, (self.tpl.pages.get(d.kind).columns[1][0] - d.divider["x"]) if (d.divider and len(d.columns) > 1) else 20.0)
-        cols = [(inner_x0, mid - gut), (mid + gut, inner_x1)]
+        cols = [(inner_x0, mid - gut), (mid + gut, inner_x1)] if cd.columns >= 2 else [(inner_x0, inner_x1)]
         top = y0 + cd.pad_top - (h1.fontSize * 0.22)
         head = [self.heading(sec.title, 1, h1, _hex(cd.dash_color or self.tpl.accent))] if sec.title else []
         placed_h: list[Placed] = []
@@ -766,9 +823,10 @@ class Composer:
         if not d or not d.card or not sections:
             return sections
         self.new_page(c)
-        self.paint(c, d)
+        self.paint(c, d, art=False)
         sec = sections[0]
         rest, card_bottom = self.card_page(c, d, sec)
+        self.art(c, d)  # the reference's shapes sit on top of the panel
         remaining = list(sections[1:])
         cols = [tuple(x) for x in d.columns] or [(36, self.W - 36)]
         gap = max(24.0, d.content_top - d.card.box[3]) if d.content_top > d.card.box[3] else 40.0
@@ -803,6 +861,25 @@ class Composer:
         self._carry = story
         return remaining
 
+    def _tail_region(self):
+        """Where the reference's closing page has text above its panel: columns, top, bottom."""
+        d = self.tpl.pages.get("conclusion")
+        if not d or not d.card or not self.doc.conclusion:
+            return None
+        top, bottom = d.content_top, d.card.box[1] - 24
+        if top <= 0 or d.content_bottom > d.card.box[1] + 2 or bottom - top < 120:
+            return None
+        cols = [tuple(x) for x in (self.tpl.pages.get("body") or d).columns] or [(36, self.W - 36)]
+        return cols, top, bottom
+
+    def _fits_tail(self, story: list) -> bool:
+        region = self._tail_region()
+        if not region or any(isinstance(f, Marker) for f in story):
+            return False
+        cols, top, bottom = region
+        _, rest, _ = fill(list(story), cols, top, bottom)
+        return not rest
+
     def flow(self, c, story: list, image_keys: set[str]):
         body = self.tpl.pages.get("body") or self.tpl.pages.get("intro")
         img_d = self.tpl.pages.get("image")
@@ -811,6 +888,9 @@ class Composer:
         guard = 0
         while story and guard < 400:
             guard += 1
+            if self._tail is not None and pending is None and self._fits_tail(story):  # the end goes above the closing panel
+                self._tail = story
+                return
             while story and isinstance(story[0], Marker):
                 if story[0].key in image_keys and img_d:
                     pending = story[0].key
@@ -833,6 +913,12 @@ class Composer:
             cols = [tuple(x) for x in d.columns] or [(36, self.W - 36)]
             top = d.content_top or 72
             bottom = d.content_bottom or (self.H - 72)
+            if use_img and d.photo:  # text never runs over the photo
+                pb = d.photo.box
+                if pb[1] > self.H * 0.4:
+                    bottom = min(bottom, pb[1] - 14)
+                elif (d.photo.fade_to or pb[3]) > top and not d.top_rule:
+                    top = max(top, (d.photo.fade_from or pb[3]) - 20)
             seen: list[str] = []
             placed, story, bots = fill(story, cols, top, bottom, seen, allow_stop=not use_img, section_per_column=bool(use_img))
             area = (bottom - top) * len(cols)
@@ -856,8 +942,16 @@ class Composer:
         if not d or not d.card or not sec:
             return False
         self.new_page(c)
-        self.paint(c, d)
+        self.paint(c, d, art=False)
+        if self._tail:
+            region = self._tail_region()
+            if region:
+                cols, top, bottom = region
+                placed, rest_tail, bots = fill(self._tail, cols, top, bottom)
+                self.draw_placed(c, placed, d)
+                self._tail = rest_tail
         rest, _ = self.card_page(c, d, sec, conclusion=True)
+        self.art(c, d)
         if rest:
             self.notes.append("The conclusion was longer than the closing card; its last part continues on the next page.")
             self._overflow = rest
@@ -910,6 +1004,7 @@ class Composer:
         c.setCreator("Zensar Content Studio - brand documents (offline)")
         self._carry: list = []
         self._overflow: list = []
+        self._tail: Optional[list] = [] if self._tail_region() else None
         self.used_images: set[str] = set()
         self.cover(c)
         sections = [s for s in self.doc.sections]
@@ -930,7 +1025,10 @@ class Composer:
         if self.doc.conclusion and not self.tpl.pages.get("conclusion"):
             story += self.section_story(self.doc.conclusion, col_w, first=not story)
         self.flow(c, story, set(image_sections.values()))
-        if self.conclusion(c) and self._overflow:
+        if not self.conclusion(c) and self._tail:
+            self.flow(c, self._tail, set())  # no closing page after all: the end still gets printed
+        self._tail = None
+        if self._overflow:
             self.flow(c, self._overflow, set())
         self.back(c, self.doc.authors)
         c.showPage()

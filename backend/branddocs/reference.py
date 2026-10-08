@@ -327,7 +327,8 @@ def _style(lines: list[Line]) -> TextStyle:
     c = Counter((l.family, l.weight, l.size, l.color) for l in lines for _ in range(max(1, len(l.text) // 8)))
     (fam, wt, size, color), _ = c.most_common(1)[0]
     same = sorted([l for l in lines if l.size == size and l.family == fam], key=lambda l: (round(l.x0), l.y0))
-    gaps = [b.baseline - a.baseline for a, b in zip(same, same[1:]) if abs(a.x0 - b.x0) < 3 and 0 < b.baseline - a.baseline < size * 2.2]
+    # a real line step is at least the type size (pieces of one line, or super/subscripts, are not)
+    gaps = [b.baseline - a.baseline for a, b in zip(same, same[1:]) if abs(a.x0 - b.x0) < 3 and size * 0.95 <= b.baseline - a.baseline < size * 2.2]
     leading = round(statistics.median(gaps), 2) if gaps else round(size * 1.25, 2)
     return TextStyle(family=fam, weight=wt, size=size, leading=leading, color=color)
 
@@ -354,16 +355,20 @@ def _columns(pd: PageData, body: TextStyle, vrules: list[Shape], region=None) ->
         div = {"x": round((v.bbox[0] + v.bbox[2]) / 2, 2), "color": v.stroke or "#000000", "width": v.width or 0.25,
                "y0": v.bbox[1], "y1": v.bbox[3]}
     left = min(merged) if merged else 36.0
+    right = (region[2] - (left - region[0])) if region else pd.w - left
+
+    def end_of(x0: float, limit: float) -> float:
+        ends = sorted(l.x1 for l in ls if abs(l.x0 - x0) < 6 and l.x1 <= limit + 2)
+        return ends[int(len(ends) * 0.9)] if ends else limit
     if len(merged) >= 2 and div:
         x2 = min(x for x in merged if x > div["x"]) if any(x > div["x"] for x in merged) else merged[1]
         gap = x2 - div["x"]
-        right = (region[2] - (left - region[0])) if region else pd.w - left
         return [[left, div["x"] - gap], [x2, right]], div
     if len(merged) >= 2:
-        right = (region[2] - (left - region[0])) if region else pd.w - left
-        mid = (merged[0] + merged[1]) / 2
-        return [[left, mid - 10], [merged[1], right]], div
-    right = (region[2] - (left - region[0])) if region else pd.w - left
+        x2 = merged[1]
+        c1 = min(end_of(left, x2 - 8), x2 - 14)
+        gut = x2 - c1
+        return [[left, c1], [x2, max(end_of(x2, right), min(right, x2 + (c1 - left)))]], div
     return [[left, right]], div
 
 
@@ -408,7 +413,9 @@ def _design(kind, pd: PageData, P: Parts, body: TextStyle, heading: Optional[Tex
                       pad_bottom=round(b[3] - max(l.y1 for l in inner), 2) if inner else 30,
                       dash_color=dash.fill if dash else "", text_color=(inner_body or inner)[0].color if inner else "#FFFFFF",
                       divider_color=vdiv[0].stroke if vdiv else "", divider_width=vdiv[0].width if vdiv else 0.25,
-                      separator_rules=bool(seps))
+                      separator_rules=bool(seps),
+                      columns=2 if (vdiv or len({round(l.x0 / 20) for l in inner_body if l.x1 - l.x0 > 40}) >= 2 and
+                                    max((l.x1 - l.x0 for l in inner_body), default=0) < (b[2] - b[0]) * 0.6) else 1)
     outside = [l for l in body_lines if not card_box or not _inside([l.x0, l.y0, l.x1, l.y1], card_box)]
     if outside:
         d.text_color = Counter(l.color for l in outside).most_common(1)[0][0]
@@ -570,7 +577,12 @@ def analyze(pdf: Path, tid: str, name: str, brand_id: str = "") -> DocTemplate:
     last = len(pages) - 1
     if last > 0 and not any(FOOTER_PAGE.search(l.text) and l.size < body.size for l in pages[last].lines):
         kinds[last] = "back"
-    card_pages = [i for i, P in enumerate(parts) if P.cards and i not in kinds]
+    def headed_card(i: int) -> bool:  # a panel that holds a section (heading inside), not a table box
+        if not heading:
+            return False
+        return any(_inside([l.x0, l.y0, l.x1, l.y1], b) and abs(l.size - heading.size) < 0.6
+                   for _, b in parts[i].cards for l in pages[i].lines)
+    card_pages = [i for i, P in enumerate(parts) if P.cards and i not in kinds and headed_card(i)]
     if card_pages:
         kinds[card_pages[0]] = "intro"
         if len(card_pages) > 1:
@@ -582,8 +594,9 @@ def analyze(pdf: Path, tid: str, name: str, brand_id: str = "") -> DocTemplate:
             kinds[i] = "image"
             break
     rest = [i for i in range(len(pages)) if i not in kinds]
-    if rest:
-        kinds[max(rest, key=lambda i: sum(len(l.text) for l in pages[i].lines))] = "body"
+    plain = [i for i in rest if not parts[i].cards] or rest  # a text page without panels
+    if plain:
+        kinds[max(plain, key=lambda i: sum(len(l.text) for l in pages[i].lines))] = "body"
     for i, k in sorted(kinds.items()):
         t.pages[k] = _design(k, pages[i], parts[i], body, heading)
     if "body" not in t.pages:
@@ -599,11 +612,17 @@ def analyze(pdf: Path, tid: str, name: str, brand_id: str = "") -> DocTemplate:
             t.cover.title_box = [min(l.x0 for l in big), min(l.y0 for l in big), max(max(l.x1 for l in big), p.w - 36), max(l.y1 for l in big)]
             below = sorted([l for l in p.lines if l.y0 >= t.cover.title_box[3] - 2 and l.size < cover_max], key=lambda l: l.y0)
             if below:
-                lab = below[0]
+                # the document label ("White paper"): the line with the small marker shape before it, else a short line
+                def marker_for(l):
+                    return [a for a in P.artwork if a.role == "marker" and abs((a.bbox[1] + a.bbox[3]) / 2 - (l.y0 + l.y1) / 2) < l.size
+                            and a.bbox[2] <= l.x0 + 2 and l.x0 - a.bbox[2] < 30]
+                marked = [l for l in below if marker_for(l)]
+                short = [l for l in below if len(l.text.split()) <= 3]
+                lab = (marked or short or below)[0]
                 t.cover.label = TextStyle(family=lab.family, weight=lab.weight, size=lab.size, color=lab.color)
                 t.cover.label_text = lab.text
                 t.cover.label_pos = [lab.x0, lab.y0]
-                mk = [a for a in P.artwork if a.role == "marker" and abs(a.bbox[1] - lab.y0) < lab.size and a.bbox[2] <= lab.x0 + 2]
+                mk = marker_for(lab)
                 t.cover.marker = mk[0] if mk else None
     # back cover
     if "back" in t.pages:

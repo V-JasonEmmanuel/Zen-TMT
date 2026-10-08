@@ -280,3 +280,20 @@ def test_trim_removes_closing_sentences_only():
     assert sum(s.words for s in secs) <= 200 * 1.04
     assert {s.text[:40] for s in secs} == before  # openings untouched, nothing rewritten
     assert all(s.text.endswith(".") for s in secs)
+
+
+def test_wide_table_fits_column(template, tmp_path):
+    from docx import Document
+
+    d = Document()
+    d.add_heading("Wide data", 0)
+    d.add_heading("Results", 1)
+    d.add_paragraph(LOREM)
+    t = d.add_table(rows=10, cols=12)
+    for r in range(10):
+        for c in range(12):
+            t.cell(r, c).text = "Variables" if (r, c) == (0, 0) else f"v{r}.{c}"
+    p = tmp_path / "wide.docx"
+    d.save(p)
+    m = _convert(template["id"], "wide.docx", p, length="full")
+    assert m["status"] == "done", m.get("error")
