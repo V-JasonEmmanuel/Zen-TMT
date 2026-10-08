@@ -15,7 +15,7 @@ from typing import Optional
 
 from backend.papers.model import Block, Inline
 
-CONCLUSION = re.compile(r"^\s*(\d+(\.\d+)*\.?\s*)?(conclusions?|concluding remarks|summary|in summary|final thoughts|closing thoughts|"
+CONCLUSION = re.compile(r"^\s*((\d+(\.\d+)*|[IVXL]+|[A-H])[.)]?\s*)?(conclusions?|concluding remarks|summary|in summary|final thoughts|closing thoughts|"
                         r"the verdict|key takeaways|takeaways|wrap[- ]?up|the bottom line|in closing)\b", re.I)
 AUTHOR_LABEL = re.compile(r"^\s*(authored by|written by|prepared by|authors?)\s*:?\s*$", re.I)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")

@@ -229,7 +229,7 @@ class Placed:
 
 
 def fill(story: list, cols: list[tuple[float, float]], top: float, bottom: float, seen: Optional[list] = None,
-         allow_stop: bool = True) -> tuple[list[Placed], list, list[float]]:
+         allow_stop: bool = True, section_per_column: bool = False) -> tuple[list[Placed], list, list[float]]:
     """Place flowables into columns (top-origin coordinates). Returns placed items, the rest, column bottoms."""
     placed: list[Placed] = []
     bottoms: list[float] = []
@@ -253,6 +253,9 @@ def fill(story: list, cols: list[tuple[float, float]], top: float, bottom: float
             if first and isinstance(f, SectionRule):
                 story.pop(0)
                 continue
+            if section_per_column and isinstance(f, SectionRule) and ci < len(cols) - 1:
+                story.pop(0)  # image pages: the next section starts the next column (headings side by side)
+                break
             sb = 0 if first else f.getSpaceBefore()
             avail = bottom - y - sb
             if avail <= 4:
@@ -309,6 +312,32 @@ def balanced(story: list, cols: list[tuple[float, float]], top: float, max_botto
     return best
 
 
+def title_lines(title: str, font: str, size: float, width: float) -> Optional[list[str]]:
+    """Break a title into lines at spaces or after hyphens only; None when a single word is wider than the box."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    chunks: list[tuple[str, bool]] = []  # (text, starts a new word)
+    for word in title.split():
+        parts = re.split(r"(?<=-)", word)
+        for k, part in enumerate(parts):
+            if part:
+                chunks.append((part, k == 0))
+    lines: list[str] = []
+    cur = ""
+    for text, new_word in chunks:
+        if stringWidth(text, font, size) > width:
+            return None
+        cand = (cur + (" " if new_word and cur else "") + text) if cur else text
+        if stringWidth(cand, font, size) <= width:
+            cur = cand
+        else:
+            lines.append(cur)
+            cur = text
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 # ------------------------------------------------------------------ composer
 @dataclass
 class Composer:
@@ -319,13 +348,19 @@ class Composer:
     label: str = ""
     year: int = field(default_factory=lambda: date.today().year)
     notes: list[str] = field(default_factory=list)
+    scale: float = 1.0  # < 1 sets the text a little tighter (to avoid a nearly empty last page)
 
     def __post_init__(self):
         t = self.tpl
         self.W, self.H = t.page_w, t.page_h
         self.page_no = 0
-        self.body_st = t.styles.get("body") or TextStyle(size=10, leading=14)
-        self.h1_st = t.styles.get("h1") or TextStyle(size=22, weight=500, leading=26)
+        self.page_fill: list[tuple[int, str, float]] = []  # (page, design kind, share of the text area used)
+        b = t.styles.get("body") or TextStyle(size=10, leading=14)
+        h = t.styles.get("h1") or TextStyle(size=22, weight=500, leading=26)
+        k, kh = self.scale, 0.5 + 0.5 * self.scale
+        self.body_st = b.model_copy(update={"size": round(b.size * max(k, 0.92), 2), "leading": round((b.leading or b.size * 1.3) * k, 2),
+                                            "space_after": round(b.space_after * k * k, 2)})
+        self.h1_st = h.model_copy(update={"size": round(h.size * kh, 2), "leading": round((h.leading or h.size * 1.15) * kh, 2)})
         self.dash = t.dash or None
         self.accent = _hex(t.accent or "#000000")
         self._families()
@@ -529,7 +564,8 @@ class Composer:
                 for s in a.shapes:
                     self.shape(c, s)
 
-    def photo(self, c, d: PageDesign, path: Path, box: list[float], fade_from=0.0, fade_to=0.0, shade_from=0.0, shade_to=0.0):
+    def photo(self, c, d: PageDesign, path: Path, box: list[float], fade_from=0.0, fade_to=0.0, shade_from=0.0, shade_to=0.0,
+              top_shade: Optional[list[float]] = None):
         """Image in a box (cover-fit) fading into the page colour at the bottom, like the reference."""
         x0, y0, x1, y1 = box
         bw, bh = x1 - x0, y1 - y0
@@ -563,6 +599,22 @@ class Composer:
             if alpha > 0:
                 t = np.clip((ys - shade_from) / max(1, shade_to - shade_from), 0, 1)[:, None, None]
                 t = (t * t * (3 - 2 * t)) * alpha
+                a = a * (1 - t) + bg * t
+                im = PILImage.fromarray(a.astype("uint8"))
+        if top_shade:
+            # artwork at the top (the logo) on a bright part of the image: darken from the top edge just enough
+            import numpy as np
+
+            a = np.asarray(im).astype(float)
+            bg = np.array([int(d.background[i:i + 2], 16) for i in (1, 3, 5)], dtype=float)
+            x0b, y0b, x1b, y1b = (int(v * 2) for v in top_shade)
+            band = a[max(0, y0b):y1b, max(0, x0b):x1b]
+            lum = float(np.percentile(band @ np.array([0.2126, 0.7152, 0.0722]), 90) / 255) if band.size else 0.0
+            if lum > 0.35:
+                alpha = min(0.85, 1 - 0.35 / lum)
+                end = (top_shade[3] + 70)
+                ys = np.arange(a.shape[0]) / 2 + y0
+                t = (np.clip(1 - ys / end, 0, 1) ** 1.4)[:, None, None] * alpha
                 a = a * (1 - t) + bg * t
                 im = PILImage.fromarray(a.astype("uint8"))
         tmp = path.with_name(path.stem + f"_p{self.page_no}.jpg")
@@ -620,7 +672,10 @@ class Composer:
         img = self.images.get("cover")
         if img:
             top = self.tpl.cover.title_box[1] if self.tpl.cover.title_box else self.H * 0.55
-            self.photo(c, d, Path(img), [0, 0, self.W, self.H], shade_from=max(1.0, top - 170), shade_to=top - 20)
+            logos = [a.bbox for a in d.artwork if a.bbox and a.bbox[1] < self.H * 0.25]
+            self.photo(c, d, Path(img), [0, 0, self.W, self.H], shade_from=max(1.0, top - 170), shade_to=top - 20,
+                       top_shade=[min(b[0] for b in logos), min(b[1] for b in logos), max(b[2] for b in logos), max(b[3] for b in logos)]
+                       if logos else None)
             self.used_images.add("cover")
         for a in d.artwork:
             for s in a.shapes:
@@ -629,14 +684,17 @@ class Composer:
         if cv.title_box:
             x0, ytop, x1, ybot = cv.title_box
             size, lead = cv.title.size, cv.title.leading or cv.title.size * 1.05
-            for _ in range(8):
-                st = ParagraphStyle("ct", fontName=self._font(cv.title.weight), fontSize=size, leading=lead, textColor=_hex(cv.title.color))
-                p = Paragraph(html.escape(self.doc.title), st)
-                w, h = p.wrap(x1 - x0, 10 ** 6)
-                if len(p.blPara.lines) <= 4 or size < cv.title.size * 0.55:
+            fn = self._font(cv.title.weight)
+            for _ in range(14):
+                lines = title_lines(self.doc.title, fn, size, x1 - x0)
+                if lines is not None and len(lines) <= 4 or size < cv.title.size * 0.45:
                     break
-                size *= 0.88
-                lead *= 0.88
+                size *= 0.92
+                lead *= 0.92
+            lines = lines or [self.doc.title]
+            st = ParagraphStyle("ct", fontName=fn, fontSize=size, leading=lead, textColor=_hex(cv.title.color))
+            p = Paragraph("<br/>".join(html.escape(x) for x in lines), st)
+            p.wrap(x1 - x0 + 40, 10 ** 6)
             p.drawOn(c, x0, self.Y(ybot + (lead - size) * 0.3))
         label = self.label if self.label is not None else cv.label_text
         if label and cv.label_pos:
@@ -776,7 +834,9 @@ class Composer:
             top = d.content_top or 72
             bottom = d.content_bottom or (self.H - 72)
             seen: list[str] = []
-            placed, story, bots = fill(story, cols, top, bottom, seen, allow_stop=not use_img)
+            placed, story, bots = fill(story, cols, top, bottom, seen, allow_stop=not use_img, section_per_column=bool(use_img))
+            area = (bottom - top) * len(cols)
+            self.page_fill.append((self.page_no, d.kind, sum(p.h for p in placed) / area if area > 0 else 1.0))
             # a section with an image started on this page: the next page is its image page
             for k in seen:
                 if k in image_keys and img_d is not None:

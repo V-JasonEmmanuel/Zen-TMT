@@ -140,4 +140,5 @@ class DocTemplate(BaseModel):
     cover: CoverDesign = Field(default_factory=CoverDesign)
     back: BackDesign = Field(default_factory=BackDesign)
     image_style: ImageStyle = Field(default_factory=ImageStyle)
+    profile: dict = Field(default_factory=dict)  # reference content size: words, sections, section_words, conclusion_words
     notes: list[str] = Field(default_factory=list)

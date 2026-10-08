@@ -93,7 +93,7 @@ export const api = {
   templateGallery: (brandId: string) => request<TemplateItem[]>(`/api/templates/gallery?brand_id=${encodeURIComponent(brandId)}`),
 
   // brand documents
-  brandDocStatus: () => request<{ images: { available: boolean; message: string; model: string; license: string } }>("/api/branddocs/status"),
+  brandDocStatus: (refresh = false) => request<{ images: { available: boolean; message: string; model: string; license: string; python: string } }>(`/api/branddocs/status${refresh ? "?refresh=true" : ""}`),
   brandDocTemplates: () => request<BrandDocTemplate[]>("/api/branddocs/templates"),
   brandDocTemplate: (id: string) => request<BrandDocTemplate>(`/api/branddocs/templates/${id}`),
   createBrandDocTemplate(file: File, name: string, brand_id: string) {
@@ -108,7 +108,7 @@ export const api = {
   deleteBrandDocTemplate: (id: string) => request<{ deleted: string }>(`/api/branddocs/templates/${id}`, { method: "DELETE" }),
   brandDocs: () => request<BrandDocMeta[]>("/api/branddocs"),
   brandDoc: (id: string) => request<BrandDocMeta>(`/api/branddocs/${id}`),
-  convertBrandDoc(opts: { file?: File; text?: string; name?: string; template_id: string; label?: string; title?: string; images: number; use_llm: boolean; generate_images: boolean }) {
+  convertBrandDoc(opts: { file?: File; text?: string; name?: string; template_id: string; label?: string; title?: string; images: number; use_llm: boolean; generate_images: boolean; length: string; words: number }) {
     const fd = new FormData();
     if (opts.file) fd.append("file", opts.file);
     if (opts.text) fd.append("text", opts.text);
@@ -119,6 +119,8 @@ export const api = {
     fd.append("images", String(opts.images));
     fd.append("use_llm", String(opts.use_llm));
     fd.append("generate_images", String(opts.generate_images));
+    fd.append("length", opts.length);
+    fd.append("words", String(opts.words));
     return request<BrandDocMeta>("/api/branddocs", { method: "POST", body: fd });
   },
   rerunBrandDoc: (id: string, options: Record<string, unknown>) =>

@@ -179,6 +179,8 @@ export function BrandDocuments() {
   const [images, setImages] = useState(-1);
   const [gen, setGen] = useState(true);
   const [useLlm, setUseLlm] = useState(true);
+  const [length, setLength] = useState<"reference" | "custom" | "full">("reference");
+  const [words, setWords] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const current = templates.data?.find((t) => t.id === tpl);
@@ -201,7 +203,8 @@ export function BrandDocuments() {
     setError(null);
     try {
       const m = await api.convertBrandDoc({ file: mode === "file" ? file ?? undefined : undefined, text: mode === "text" ? text : undefined,
-        template_id: tpl, title: title.trim() || undefined, label: label ?? undefined, images, generate_images: gen && genReady, use_llm: useLlm && llmReady });
+        template_id: tpl, title: title.trim() || undefined, label: label ?? undefined, images, generate_images: gen && genReady, use_llm: useLlm && llmReady,
+        length, words: length === "custom" ? words || refWords : 0 });
       nav(`/brand-docs/${m.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -209,6 +212,8 @@ export function BrandDocuments() {
     }
   };
   const nImg = images < 0 ? "auto (1–3)" : String(images);
+  const refWords = current?.profile?.words ?? 0;
+  const refSecs = current?.profile?.sections ?? 0;
 
   return (
     <>
@@ -244,7 +249,35 @@ export function BrandDocuments() {
           )}
         </Card>
 
-        <Card title="3. Options">
+        <Card title="3. Length">
+          <p className="mb-3 text-sm text-slate-600">
+            The reference holds about <b>{refWords ? refWords.toLocaleString() : "…"} words</b> in {refSecs || "…"} sections plus a conclusion.
+            Longer documents are condensed to that size and shorter ones expanded, keeping every key point, fact and figure.
+          </p>
+          <div className="grid gap-3 md:grid-cols-3">
+            {([["reference", "Match the reference", `about ${refWords ? refWords.toLocaleString() : "…"} words - the same pages as the reference`],
+               ["custom", "Custom length", "choose the number of words"],
+               ["full", "Full document", "every word of the source, as many pages as it needs"]] as const).map(([id, label, desc]) => (
+              <button key={id} onClick={() => setLength(id)} aria-pressed={length === id}
+                className={`rounded-xl border-2 p-3 text-left transition ${length === id ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-400"}`}>
+                <div className="flex items-center justify-between text-sm font-semibold">{label}{length === id && <Check className="h-4 w-4" />}</div>
+                <div className="mt-1 text-xs text-slate-500">{desc}</div>
+              </button>
+            ))}
+          </div>
+          {length === "custom" && (
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <input type="range" min={300} max={6000} step={50} value={words || refWords || 1200} onChange={(e) => setWords(Number(e.target.value))} className="w-72" />
+              <input type="number" min={150} max={20000} step={50} className={`${inputCls} w-32`} value={words || refWords || 1200} onChange={(e) => setWords(Number(e.target.value))} />
+              <span className="text-sm text-slate-600">words · about {Math.max(3, Math.round((refSecs || 8) * (words || refWords || 1200) / Math.max(1, refWords || 1200)))} sections</span>
+            </div>
+          )}
+          {length !== "full" && !llmReady && (
+            <div className="mt-3"><Alert tone="warning">No local AI model is ready, so condensing selects the document's key sentences (wording unchanged) and expanding is not possible. Choose a model in Settings for rewritten, flowing text.</Alert></div>
+          )}
+        </Card>
+
+        <Card title="4. Options">
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Title" hint="Leave empty to use the document's title"><input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
             <Field label="Cover label" hint="Under the title on the cover">
@@ -258,6 +291,12 @@ export function BrandDocuments() {
             </Field>
           </div>
           <div className="mt-4 space-y-3">
+            {!genReady && status.data && (
+              <Alert tone="warning" title="Images cannot be created yet">
+                {status.data.images.message}. Until then the PDF uses brand-coloured artwork instead of images for the content.
+                <div className="mt-2"><Button size="sm" variant="secondary" onClick={() => status.reload()}>Check again</Button></div>
+              </Alert>
+            )}
             <Toggle checked={gen && genReady} disabled={!genReady} onChange={setGen}
               label={<span>Create images for the content with the local image model <span className="text-xs text-slate-500">
                 ({genReady ? `${status.data?.images.model}, ${status.data?.images.license}` : status.data?.images.message ?? "checking…"})</span></span>} />

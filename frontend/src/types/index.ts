@@ -450,6 +450,7 @@ export interface BrandDocTemplate {
   boilerplate: string[];
   image_style: string;
   notes: string[];
+  profile: { words?: number; sections?: number; section_words?: number[]; conclusion_words?: number };
 }
 
 export interface BrandDocImage { key: string; file: string; prompt: string; generated: boolean; section: string }
@@ -461,6 +462,7 @@ export interface BrandDocReport {
   conclusion: string;
   authors: string[];
   fidelity: { source_words: number; coverage: number; missing_sample: string[] };
+  length?: { mode: string; source_words: number; words: number; method: string; unsupported_numbers: string[] };
   font: { family: string; using_reference: boolean; fallback: string };
   notes: string[];
 }
@@ -470,7 +472,7 @@ export interface BrandDocMeta {
   filename: string;
   source_kind: string;
   template_id: string;
-  options: { label: string | null; title: string; images: number; use_llm: boolean; generate_images: boolean; seed: number };
+  options: { label: string | null; title: string; images: number; use_llm: boolean; generate_images: boolean; seed: number; length?: string; words?: number };
   status: "queued" | "running" | "done" | "failed";
   message: string;
   progress: number;

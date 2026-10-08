@@ -78,7 +78,41 @@ def template_summary(t: DocTemplate) -> dict:
             "colors": _palette(t), "font_family": family, "font_installed": installed, "font_fallback": t.font_fallback or "Arial",
             "styles": {k: v.model_dump() for k, v in t.styles.items()}, "label_text": t.cover.label_text,
             "footer": next((p.footer.pattern for p in t.pages.values() if p.footer), ""), "boilerplate": t.back.boilerplate,
-            "image_style": t.image_style.prompt_style, "notes": t.notes}
+            "image_style": t.image_style.prompt_style, "notes": t.notes, "profile": t.profile}
+
+
+def _image_pages(ref: Path) -> int:
+    """Pages of the reference (other than the cover) that show a photo."""
+    import fitz
+
+    from backend.branddocs.reference import _parts, _read
+
+    pages = _read(fitz.open(str(ref)))
+    return sum(1 for i, pd in enumerate(pages) if 0 < i < len(pages) - 1 and _parts(pd).photo is not None)
+
+
+def ensure_profile(t: DocTemplate) -> dict:
+    """How much content the reference holds: total words, number of sections, words per section, conclusion length."""
+    if t.profile.get("words") and "image_pages" in t.profile:
+        return t.profile
+    import tempfile
+
+    from backend.branddocs import content
+
+    ref = tdir(t.id) / "reference.pdf"
+    prof = {"words": 0, "sections": 0, "section_words": [], "conclusion_words": 0}
+    if ref.exists():
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                doc = content.read(ref, Path(td), "pdf", ref.name, drop_texts=[t.cover.label_text] + t.back.boilerplate)
+            secs = [x for x in doc.sections if x.title and x.kind == "body"]
+            prof = {"words": doc.words, "sections": len(secs), "section_words": [x.words for x in secs],
+                    "conclusion_words": doc.conclusion.words if doc.conclusion else 0, "image_pages": _image_pages(ref)}
+        except Exception as exc:
+            log.warning("Reference profile failed", template=t.id, error=str(exc)[:160])
+    t.profile = prof
+    save_template(t)
+    return prof
 
 
 def _palette(t: DocTemplate) -> list[dict]:
@@ -124,6 +158,7 @@ def create_template(filename: str, src: Path, name: str, brand_id: str = "") -> 
             except Exception:
                 pass
         save_template(t)
+        ensure_profile(t)
         doc = fitz.open(str(d / "reference.pdf"))
         for p in doc:
             p.get_pixmap(dpi=40).save(str(d / "pages" / f"page_{p.number + 1:02d}.png"))
@@ -211,7 +246,9 @@ def list_docs() -> list[dict]:
     return out
 
 
-DEFAULTS = {"label": None, "title": "", "images": -1, "use_llm": True, "generate_images": True, "seed": 7}
+# length: "reference" = the reference's size (default), "custom" = `words`, "full" = the whole document
+DEFAULTS = {"label": None, "title": "", "images": -1, "use_llm": True, "generate_images": True, "seed": 7,
+            "length": "reference", "words": 0}
 
 
 def create_doc(filename: str, src: Optional[Path], text: str, template_id: str, options: dict) -> dict:
@@ -318,6 +355,20 @@ def fidelity(doc, pdf_path: Path) -> dict:
             "missing_sample": [w for w, _ in sorted(missing.items(), key=lambda x: -x[1])][:12]}
 
 
+def build_pdf(tpl, fonts, doc, images: dict, label: str, image_sections: dict, out: Path) -> dict:
+    """Compose; when the text spills a few lines onto an extra page, set it slightly tighter (as a designer would)."""
+    from backend.branddocs.compose import Composer
+
+    res: dict = {}
+    for scale in (1.0, 0.95, 0.9):
+        comp = Composer(tpl, fonts, doc, images, label=label, scale=scale)
+        res = comp.build(out, image_sections)
+        text_pages = [f for f in comp.page_fill]
+        if len(text_pages) < 2 or text_pages[-1][2] >= 0.3:
+            break
+    return res
+
+
 def _run(did: str) -> None:
     from backend.branddocs import content, imagegen
     from backend.branddocs.compose import Composer
@@ -338,10 +389,28 @@ def _run(did: str) -> None:
         if opts.get("title"):
             doc.title = str(opts["title"]).strip()
         update(did, title=doc.title)
+        fitted = None
+        length = opts.get("length", "reference")
+        if length in ("reference", "custom"):
+            from backend.branddocs.fit import fit
+
+            prof = ensure_profile(tpl)
+            ref_words = int(prof.get("words") or 1200)
+            ref_secs = int(prof.get("sections") or 8)
+            target = ref_words if length == "reference" else max(150, min(20000, int(opts.get("words") or ref_words)))
+            secs = ref_secs if length == "reference" else max(3, min(24, round(ref_secs * target / max(1, ref_words))))
+            concl = int(prof.get("conclusion_words") or 0) or max(60, target // 8)
+            concl = max(50, round(concl * target / max(1, ref_words))) if length == "custom" else concl
+            fitted = fit(doc, target, secs, concl, bool(opts.get("use_llm", True)),
+                         lambda m, pc: _p(did, m, 6 + int(pc * 0.1)))
+            doc = fitted.doc
         # images
         n = opts.get("images", -1)
-        if n is None or n < 0:
-            n = min(3, max(1, len([s for s in doc.sections if s.level == 1 and s.title]) // 4))
+        if n is None or n < 0:  # automatic: as many image pages as the reference has (scaled to the length)
+            prof = ensure_profile(tpl)
+            base = int(prof.get("image_pages", 1))
+            n = max(1 if base else 0, round(base * max(1.0, doc.words / max(1, prof.get("words") or doc.words))))
+            n = min(n, 6)
         picks = plan_images(doc, tpl, int(n))
         st = tpl.image_style
         jobs: list[imagegen.ImageJob] = []
@@ -378,9 +447,9 @@ def _run(did: str) -> None:
         fonts = resolve(Counter(f.rsplit("-", 1)[0] for f in tpl.fonts_seen).most_common(1)[0][0] if tpl.fonts_seen else "",
                         tpl.brand_id, tpl.font_fallback)
         label = opts.get("label")
-        comp = Composer(tpl, fonts, doc, {j.key: j.result for j in jobs}, label=tpl.cover.label_text if label is None else str(label))
         out = d / "document.pdf"
-        res = comp.build(out, {i: f"sec-{i}" for i in picks})
+        res = build_pdf(tpl, fonts, doc, {j.key: j.result for j in jobs}, tpl.cover.label_text if label is None else str(label),
+                        {i: f"sec-{i}" for i in picks}, out)
         _p(did, "Checking the result", 95)
         import fitz
 
@@ -395,7 +464,12 @@ def _run(did: str) -> None:
                    "section": doc.sections[int(j.key[4:])].title if j.key.startswith("sec-") else "Cover"} for j in jobs if j.key in used]
         if len(images) < len(jobs):
             res["notes"].append(f"{len(jobs) - len(images)} planned image page(s) were left out: the text ended before them.")
+        if fitted is not None:
+            res["notes"] = fitted.notes + res["notes"]
         report = {"pages": res["pages"], "sections": len(doc.sections) + (1 if doc.conclusion else 0), "words": doc.words,
+                  "length": {"mode": fitted.mode if fitted else "full", "source_words": fitted.source_words if fitted else doc.words,
+                             "words": doc.words, "method": fitted.method if fitted else "",
+                             "unsupported_numbers": fitted.unsupported_numbers if fitted else []},
                   "conclusion": doc.conclusion.title if doc.conclusion else "", "authors": [a.name for a in doc.authors],
                   "fidelity": fid, "font": {"family": fonts.family, "using_reference": fonts.using_reference, "fallback": fonts.fallback},
                   "notes": list(dict.fromkeys(fonts.notes + doc.notes + notes + res["notes"]))}

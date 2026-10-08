@@ -221,3 +221,62 @@ def test_image_prompts_and_grading():
     assert dist(out) < 0.5 * dist(src)  # pulled towards the reference photos' colour
     art = imagegen.brand_art((64, 80), ["#201B5A", "#ED4E46", "#F0F0EE"])
     assert art.size == (64, 80)
+
+
+def test_fit_to_reference_length_without_llm():
+    from backend.branddocs.content import DocContent, DocSection
+    from backend.branddocs.fit import clean_heading, fit, regroup, select_sentences
+    from backend.papers.model import Block
+
+    def sec(title, n, level=1):
+        text = " ".join(f"Sentence {k} explains how retrieval improves answers with fresh company data in practice." for k in range(n))
+        return DocSection(title=title, level=level, blocks=[Block(kind="para", runs=[Inline(t=text)])])
+
+    from backend.papers.model import Inline
+    secs = [sec("I. INTRODUCTION", 40), sec("A. Background", 30, 2), sec("II. METHODS", 60), sec("A. Data", 20, 2),
+            sec("B. Models", 20, 2), sec("III. RESULTS", 50), sec("References", 30)]
+    secs[-1].kind = "references"
+    doc = DocContent(title="A long paper", sections=secs, conclusion=sec("Conclusion", 20))
+    assert clean_heading("II. OVERVIEW OF RAG") == "Overview of RAG"
+    parts = regroup(doc, 4)
+    assert len(parts) == 4 and not any("References" in t for p in parts for t in p.titles)
+    picked = select_sentences(parts[0].text, 60)
+    assert 30 <= sum(len(x.split()) for x in picked) <= 90
+    r = fit(doc, 400, 4, 60, use_llm=False)
+    assert r.mode == "selected" and 250 <= r.words <= 560, r.words
+    assert len(r.doc.sections) == 4 and r.doc.conclusion is not None
+    kept = fit(doc, 0, 4, 60, use_llm=False)
+    assert kept.mode == "kept"
+
+
+def test_title_lines_break_after_hyphens_only():
+    from backend.branddocs.compose import title_lines
+
+    lines = title_lines("Retrieval-Augmented Generation for Large Language Models: A Survey", "Helvetica-Bold", 40, 330)
+    assert lines and all("Augment" not in ln or "Augmented" in ln for ln in lines)
+    assert " ".join(lines).replace("- ", "-").replace("-", "-") .count("Retrieval-") == 1
+    assert title_lines("Supercalifragilisticexpialidocious", "Helvetica-Bold", 60, 200) is None
+
+
+def test_length_option_in_conversion(template):
+    text = "# Short note\n\n" + "\n\n".join(f"## Point {k}\n\n{LOREM * 6}" for k in range(1, 9)) + "\n\n## Conclusion\n\nKeep it simple.\n"
+    m = _convert(template["id"], "long.md", None, text, length="custom", words=300)
+    assert m["status"] == "done", m.get("error")
+    ln = m["report"]["length"]
+    assert ln["mode"] == "selected" and ln["source_words"] > 1000 and ln["words"] < 600
+    full = _convert(template["id"], "long.md", None, text, length="full")
+    assert full["report"]["length"]["mode"] == "full" and full["report"]["words"] > 1000
+
+
+def test_trim_removes_closing_sentences_only():
+    from backend.branddocs.content import DocSection
+    from backend.branddocs.fit import trim
+    from backend.papers.model import Block, Inline
+
+    para = " ".join(f"Point {k} keeps the original wording of the source." for k in range(12))
+    secs = [DocSection(title=f"S{i}", blocks=[Block(kind="para", runs=[Inline(t=para)])]) for i in range(3)]
+    before = {s.text[:40] for s in secs}
+    trim(secs, [60, 60, 60], 200)
+    assert sum(s.words for s in secs) <= 200 * 1.04
+    assert {s.text[:40] for s in secs} == before  # openings untouched, nothing rewritten
+    assert all(s.text.endswith(".") for s in secs)

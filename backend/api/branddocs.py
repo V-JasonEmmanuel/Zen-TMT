@@ -30,10 +30,10 @@ def _save_upload(file: UploadFile) -> Path:
 
 
 @router.get("/status")
-def status():
+def status(refresh: bool = False):
     from backend.branddocs import imagegen
 
-    return {"images": imagegen.status()}
+    return {"images": imagegen.status(refresh=refresh)}
 
 
 # ------------------------------------------------------------------ templates
@@ -96,9 +96,12 @@ def docs():
 @router.post("")
 def convert(file: Optional[UploadFile] = File(None), text: str = Form(""), name: str = Form(""), template_id: str = Form(...),
             label: Optional[str] = Form(None), title: str = Form(""), images: int = Form(-1), use_llm: bool = Form(True),
-            generate_images: bool = Form(True)):
+            generate_images: bool = Form(True), length: str = Form("reference"), words: int = Form(0)):
     _tpl(template_id)
-    opts = {"label": label, "title": title, "images": max(-1, min(6, images)), "use_llm": use_llm, "generate_images": generate_images}
+    if length not in ("reference", "custom", "full"):
+        raise HTTPException(400, "length must be reference, custom or full")
+    opts = {"label": label, "title": title, "images": max(-1, min(6, images)), "use_llm": use_llm, "generate_images": generate_images,
+            "length": length, "words": max(0, min(20000, words))}
     tmp = None
     try:
         if file is not None and file.filename:

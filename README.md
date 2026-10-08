@@ -188,7 +188,7 @@ Review and correct the result in the app (front matter, section levels and types
 * **Artwork.** Logo lockups, patterns and background shapes, kept as vectors and replayed exactly.
 * **Image style.** The colour statistics of the reference photos.
 
-The name, cover label, footer, back-cover text and image style can be edited. If the reference's typeface (e.g. Graphik) is not installed, the brand's fallback font is used and the app says so. Put the licensed font files in `brands/<brand>/assets/fonts` to use the exact typeface; `.otf` files are converted automatically.
+The name, cover label, footer, back-cover text and image style can be edited. Put the licensed font files in `brands/<brand>/assets/fonts` to use the exact typeface; `.otf` files are converted automatically.
 
 **2. Convert.** Upload a PDF, `.docx`, Markdown or text file, or paste text.
 
@@ -204,12 +204,21 @@ The document is then laid out in the template:
 
 A check confirms that every word of the source reached the PDF.
 
+**Length: match the reference.** A branded white paper has a set size, so by default the document is fitted to the reference: about the same number of words, sections and image pages. For the Zensar white paper, that is about 1,200 words in 10 sections plus a conclusion.
+
+* A longer source (for example a 14,000-word paper) is regrouped into that many parts. The local LLM condenses each part to its share of the words, in plain English. It keeps every key point, fact, figure and name, drops citations, author lists and figure references, and adds nothing.
+* Every number in the result is checked against the source. A part that adds a number falls back to the source's own sentences.
+* A shorter source is expanded the same way, using only its own content.
+* Without a local LLM, the key sentences are selected instead, with the wording unchanged.
+
+The length can also be set to a **custom** word count, or to the **full** document.
+
 **Images created on this computer.** A local Stable Diffusion 1.5 model (DreamShaper 8 LCM, CreativeML OpenRAIL-M, which allows commercial use) creates the cover image and one to three section images:
 * The prompts come from each section's heading and key terms. When a local LLM is running, it describes a scene for each section instead.
 * The image style comes from the reference.
 * Each image is colour-graded to the reference photos.
 
-It runs in a separate worker process. It uses the GPU when PyTorch has CUDA; on the CPU, each image takes 1–2 minutes. Install the model once with `python scripts/fetch_models.py --images` (about 2.2 GB). Without it, brand-coloured artwork is used instead. Nothing is sent to the internet.
+It runs in a separate worker process with any local Python that has PyTorch + diffusers. That can be the app's own environment, another installed Python found automatically, or the one set in `IMAGEGEN_PYTHON`. It uses the GPU when PyTorch has CUDA; on the CPU, each image takes 1–2 minutes. Install the model once with `python scripts/fetch_models.py --images` (about 2.2 GB). Without it, brand-coloured artwork is used instead. Nothing is sent to the internet.
 
 ## Try it: showcase samples
 
@@ -217,7 +226,8 @@ It runs in a separate worker process. It uses the GPU when PyTorch has CUDA; on 
 * a Word document with an architecture figure, a workflow, tables that become charts and KPIs, a comparison and a quote
 * a demo screen recording, a narration script, background music and an extra image
 
-With the app running, `python samplesun_showcase.py` builds the full project in one go.
+With the app running, `python samples
+un_showcase.py` builds the full project in one go.
 See [samples/README.md](samples/README.md) for the step-by-step tour.
 
 ## Design language: Zensar Experience (default)

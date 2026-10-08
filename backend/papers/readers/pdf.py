@@ -148,6 +148,19 @@ def _vector_bullets(doc, pages: list[PageInfo]) -> None:
                 ln.x0 = r.x0
 
 
+def _drop_caps(pages: list[PageInfo], body: float) -> None:
+    """A large initial letter ("L" + "ARGE language models...") is joined to the word it starts."""
+    for p in pages:
+        for dc in [l for l in p.lines if len(l.text.strip()) == 1 and l.text.strip().isalpha() and l.size > body * 1.8]:
+            nxt = min((l for l in p.lines if l is not dc and 0 <= l.x0 - dc.x1 < body * 1.5 and dc.y0 - 2 <= l.y0 <= dc.y1
+                       and l.spans and l.text[:1].isupper()), key=lambda l: (l.y0, l.x0), default=None)
+            if nxt is None:
+                continue
+            s0 = nxt.spans[0]
+            s0["text"] = dc.text.strip() + (s0["text"].lower() if s0["text"].split()[0].isupper() else s0["text"])
+            p.lines.remove(dc)
+
+
 def _label_start(l) -> bool:
     """A line that starts with a run-in label in bold/medium type ("Clarity: what matters...")."""
     s = next((x for x in l.spans if x["text"].strip()), None)
@@ -690,6 +703,7 @@ def read(path: Path, work_dir: Path, general: bool = False) -> dict:
     _VOCAB.update(vocab)
     sizes = [l.size for p in pages for l in p.lines for _ in range(max(1, len(l.text) // 10))]
     body = statistics.mode([round(s * 2) / 2 for s in sizes])
+    _drop_caps(pages, body)
     sidebar = _sidebar(pages, body)
     for p in pages:
         _columns(p)
@@ -726,7 +740,8 @@ def read(path: Path, work_dir: Path, general: bool = False) -> dict:
     footnotes = [x.text.strip() for x in foot]
 
     # ---- title (page 1, largest text in the upper part)
-    first = [x for pg, _, x in stream if pg == 0 and isinstance(x, Line) and (general or x.y0 < pages[0].h * 0.45)]
+    first = [x for pg, _, x in stream if pg == 0 and isinstance(x, Line) and (general or x.y0 < pages[0].h * 0.45)
+             and len(re.sub(r"[^A-Za-z]", "", x.text)) >= 4]  # never a drop cap or a page number
     title_lines: list[Line] = []
     if first:
         big = max(l.size for l in first)

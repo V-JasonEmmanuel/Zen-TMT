@@ -46,16 +46,75 @@ def model_dir() -> Path:
     return get_settings().models_path / "imagegen" / MODEL_NAME
 
 
-def status() -> dict:
-    """Is local image generation usable? (model files + libraries; no import of torch here)."""
-    import importlib.util as u
+_PY_CACHE: dict = {}
+_PROBE = ("import importlib.util as u, sys; "
+          "sys.exit(0 if all(u.find_spec(m) for m in ('torch', 'diffusers', 'transformers')) else 1)")
 
+
+def _candidates() -> list[str]:
+    import os
+    import shutil
+
+    out = []
+    env = os.environ.get("IMAGEGEN_PYTHON", "").strip()
+    if env:
+        out.append(env)
+    out.append(sys.executable)
+    for name in ("python", "python3"):
+        w = shutil.which(name)
+        if w:
+            out.append(w)
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        out.append(str(Path(local) / "Microsoft" / "WindowsApps" / "python.exe"))
+    try:  # every Python the Windows launcher knows
+        r = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=10,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out += [m.group(1).strip() for m in re.finditer(r"(\S:\\.*?python(?:w)?\.exe)", r.stdout, re.I)]
+    except Exception:
+        pass
+    seen, uniq = set(), []
+    for c in out:
+        k = c.lower()
+        if k not in seen and Path(c).exists():
+            seen.add(k)
+            uniq.append(c)
+    return uniq
+
+
+def image_python(refresh: bool = False) -> Optional[str]:
+    """A Python interpreter that has torch + diffusers + transformers (the app's own environment often has not:
+    the worker runs as a separate process, so any local Python with these libraries can do the work)."""
+    if not refresh and "py" in _PY_CACHE:
+        return _PY_CACHE["py"]
+    found = None
+    for c in _candidates():
+        try:
+            r = subprocess.run([c, "-c", _PROBE], capture_output=True, timeout=60,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if r.returncode == 0:
+                found = c
+                break
+        except Exception:
+            continue
+    _PY_CACHE["py"] = found
+    return found
+
+
+def status(refresh: bool = False) -> dict:
+    """Is local image generation usable? (model files + a Python with the image libraries)."""
     d = model_dir()
     have_model = (d / CHECKPOINT).exists() and (d / "model_index.json").exists()
-    libs = all(u.find_spec(m) is not None for m in ("torch", "diffusers", "transformers"))
-    msg = "ready" if have_model and libs else ("the image model is not installed (run scripts/fetch_models.py --images)" if not have_model
-                                               else "the image libraries are not installed (pip install diffusers)")
-    return {"available": have_model and libs, "message": msg, "model": MODEL_NAME, "license": "CreativeML OpenRAIL-M"}
+    py = image_python(refresh) if have_model else None
+    if not have_model:
+        msg = "the image model is not installed - run: python scripts/fetch_models.py --images"
+    elif not py:
+        msg = ("no Python with PyTorch + diffusers was found - install them (pip install torch diffusers transformers) "
+               "or set IMAGEGEN_PYTHON to a Python that has them")
+    else:
+        msg = "ready"
+    return {"available": bool(have_model and py), "message": msg, "model": MODEL_NAME, "license": "CreativeML OpenRAIL-M",
+            "python": py or ""}
 
 
 # ------------------------------------------------------------------ prompts
@@ -131,7 +190,7 @@ def _lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     return np.clip(c * 255, 0, 255)
 
 
-def grade(img: Image.Image, st: ImageStyle, strength: float = 0.75) -> Image.Image:
+def grade(img: Image.Image, st: ImageStyle, strength: float = 0.6) -> Image.Image:
     """Reinhard colour transfer towards the reference photos' CIELAB mean/std."""
     if len(st.lab_mean) != 3 or len(st.lab_std) != 3:
         return img
@@ -141,6 +200,8 @@ def grade(img: Image.Image, st: ImageStyle, strength: float = 0.75) -> Image.Ima
     tm, ts = np.array(st.lab_mean), np.array(st.lab_std)
     out = (lab - mu) / sd * ts + tm
     out = lab + (out - lab) * strength
+    # keep the image's own highlights (the reference photos glow): lightness moves less than colour
+    out[..., 0] = lab[..., 0] + (out[..., 0] - lab[..., 0]) * 0.6
     return Image.fromarray(_lab_to_rgb(out).astype(np.uint8))
 
 
@@ -224,7 +285,7 @@ def run(jobs: list[ImageJob], style: ImageStyle, out_dir: Path, on_progress: Cal
             jf = Path(td) / "job.json"
             jf.write_text(json.dumps(spec), encoding="utf-8")
             root = Path(__file__).resolve().parents[2]
-            proc = subprocess.Popen([sys.executable, "-m", "backend.branddocs.imagegen_worker", str(jf)], cwd=str(root),
+            proc = subprocess.Popen([st["python"] or sys.executable, "-m", "backend.branddocs.imagegen_worker", str(jf)], cwd=str(root),
                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             device = "cpu"

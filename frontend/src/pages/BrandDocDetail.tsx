@@ -106,9 +106,13 @@ export function BrandDocDetail() {
               <Card title="Check">
                 <ul className="space-y-2 text-sm">
                   <li className="flex items-center gap-2">{cov >= 98 ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Info className="h-4 w-4 text-amber-600" />}
-                    {cov}% of the document's {r.fidelity.source_words} words are in the PDF</li>
+                    {cov}% of the {r.length && r.length.mode !== "full" && r.length.mode !== "kept" ? "fitted text's" : "document's"} {r.fidelity.source_words} words are in the PDF</li>
                   {r.fidelity.missing_sample.length > 0 && cov < 99.5 && <li className="text-xs text-slate-500">Not found: {r.fidelity.missing_sample.join(", ")}</li>}
                   <li>{r.pages} pages · {r.sections} sections{r.conclusion ? ` · closing card: ${r.conclusion}` : ""}</li>
+                  {r.length && r.length.mode !== "full" && r.length.mode !== "kept" && (
+                    <li>{r.length.mode === "expanded" ? "Expanded" : "Condensed"} from {r.length.source_words.toLocaleString()} to {r.length.words.toLocaleString()} words
+                      ({r.length.method === "local AI" ? "rewritten by the local AI; every number checked against the source" : "key sentences of the source"})</li>
+                  )}
                   {r.authors.length > 0 && <li>Authors on the back cover: {r.authors.join(", ")}</li>}
                   <li>Type: {r.font.using_reference ? r.font.family : `${r.font.fallback} (in place of ${r.font.family})`}</li>
                 </ul>
