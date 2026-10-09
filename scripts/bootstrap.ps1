@@ -77,14 +77,33 @@ Write-Host "   ZENSAR  Content Studio  -  setup & launch" -ForegroundColor White
 Write-Host "==============================================" -ForegroundColor White
 
 # ---------------------------------------------------------------- already running?
-try {
-    $h = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/api/health" -TimeoutSec 2
-    if ($h.StatusCode -eq 200) {
-        Ok "Content Studio is already running at $Url"
-        if ($env:ZCS_NO_BROWSER -ne "1") { Start-Process $Url }
-        exit 0
+# Content Studio answers /api/health with {"ok": true}; another program on the port is not mistaken for it.
+function Probe($port) {
+    try {
+        $h = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/api/health" -TimeoutSec 3
+        if ($h.Content -match '^\s*\{\s*"ok"\s*:\s*true\s*\}\s*$') { return "ours" }
+        return "other"
+    } catch {
+        $busy = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+        if ($busy) { return "other" } else { return "free" }
     }
-} catch { }
+}
+$state = Probe $Port
+if ($state -eq "ours") {
+    Ok "Content Studio is already running at $Url"
+    if ($env:ZCS_NO_BROWSER -ne "1") { Start-Process $Url }
+    exit 0
+}
+if ($state -eq "other") {
+    $orig = $Port
+    for ($cand = $Port + 1; $cand -le $Port + 20; $cand++) {
+        $st = Probe $cand
+        if ($st -eq "ours") { $Url = "http://localhost:$cand"; Ok "Content Studio is already running at $Url"; if ($env:ZCS_NO_BROWSER -ne "1") { Start-Process $Url }; exit 0 }
+        if ($st -eq "free") { $Port = $cand; break }
+    }
+    $Url = "http://localhost:$Port"
+    Warn "Port $orig is used by another program - Content Studio will use port $Port"
+}
 
 # ---------------------------------------------------------------- 1. Python 3.10-3.12
 Step 1 "Python"
