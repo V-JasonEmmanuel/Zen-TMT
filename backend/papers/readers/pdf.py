@@ -22,7 +22,7 @@ from pathlib import Path
 from backend.papers.model import Block, Inline
 from backend.papers.structure import REFS_HEAD, Elem, heading_info, special_kind
 
-CAPTION = re.compile(r"^\s*(fig\.?|figure|table)\s*([0-9]+|[IVXL]+)\s*[.:|—–-]?\s*", re.I)
+CAPTION = re.compile(r"^\s*(fig\.?|figure|table)\s*([A-Z]?[0-9]+(?:\.[0-9]+)?|[IVXL]+)\s*[.:|—–-]?\s*", re.I)
 MATH_FONT = re.compile(r"CMMI|CMSY|CMEX|CMR\d+.*Math|Math|Symbol|STIX|Cambria\s*Math|MSAM|MSBM|rsfs|Euclid|MTMI|MTSY|TeX", re.I)
 MATH_CHARS = set("=∑∏∫√≤≥≠≈±×÷∂∇∈∉∀∃∞αβγδεθλμπσφωΩΔΣΦΨ→←↔⇒⇔^_·‖")
 BULLET = re.compile(r"^\s*(?:[•◦▪●‣–—-]|\(?[a-z0-9]{1,2}\))\s+")
@@ -454,7 +454,7 @@ def _graphics(page, p: PageInfo, body_size: float, out_dir: Path, counters: dict
     caps = [l for l in p.lines if CAPTION.match(l.text) and (l.bold or re.match(r"^\s*(fig|table)", l.text, re.I))
             and not l.used and len(l.text) < 400]
     # only captions that start a line block (not "as shown in Fig. 3" mid-sentence lines)
-    caps = [c for c in caps if re.match(r"^\s*(fig\.?|figure|table)\s*([0-9]+|[IVXL]+)\s*([.:|—–-]|$)", c.text, re.I) or c.bold]
+    caps = [c for c in caps if re.match(r"^\s*(fig\.?|figure|table)\s*([A-Z]?[0-9]+(?:\.[0-9]+)?|[IVXL]+)\s*([.:|—–-]|$)", c.text, re.I) or c.bold]
     if not caps:
         return []
     try:

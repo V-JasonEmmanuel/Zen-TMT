@@ -175,15 +175,19 @@ class ListItem(Flowable):
 
 
 class Figure(Flowable):
-    def __init__(self, path: Path, caption: Optional[Paragraph], max_h: float):
+    """An image block. max_w: its largest width in points (the real size of a formula cut from a PDF, or a
+    limit on enlarging a small figure); None = as wide as the column."""
+
+    def __init__(self, path: Path, caption: Optional[Paragraph], max_h: float, max_w: Optional[float] = None,
+                 space: tuple[float, float] = (6, 12)):
         super().__init__()
-        self.path, self.caption, self.max_h = path, caption, max_h
+        self.path, self.caption, self.max_h, self.max_w = path, caption, max_h, max_w
         with PILImage.open(path) as im:
             self.iw, self.ih = im.size
-        self.spaceBefore, self.spaceAfter = 6, 12
+        self.spaceBefore, self.spaceAfter = space
 
     def wrap(self, aw, ah):
-        w = aw
+        w = min(aw, self.max_w) if self.max_w else aw
         h = w * self.ih / self.iw
         if h > self.max_h:
             h = self.max_h
@@ -498,7 +502,10 @@ class Composer:
                 p = self.doc.base_dir / b.image
                 if p.exists():
                     cap = Paragraph(self.markup(b.caption), self.st["caption"]) if b.caption else None
-                    out.append(Figure(p, cap, self.H * (0.42 if b.kind == "figure" else 0.12)))
+                    if b.kind == "equation":
+                        out.append(self.equation(p))
+                    else:
+                        out.append(Figure(p, cap, self.H * 0.42, max_w=self._crop_width(p, 3.0)))
             elif b.kind == "equation":
                 out.append(Paragraph(f"<i>{html.escape(b.latex or ''.join(r.t for r in b.runs))}</i>", body))
             elif b.kind == "table":
@@ -511,8 +518,22 @@ class Composer:
                     out.append(tf)
                 elif b.image and (self.doc.base_dir / b.image).exists():
                     cap = Paragraph(self.markup(b.caption), self.st["caption"]) if b.caption else None
-                    out.append(Figure(self.doc.base_dir / b.image, cap, self.H * 0.5))
+                    out.append(Figure(self.doc.base_dir / b.image, cap, self.H * 0.5, max_w=self._crop_width(self.doc.base_dir / b.image, 3.0)))
         return out
+
+    def _crop_width(self, path: Path, zoom: float) -> Optional[float]:
+        """Figures/tables cut from a PDF page (saved at `zoom`x) may grow to 1.8x their printed size, not more."""
+        if not re.fullmatch(r"(figure|table)_\d+\.png", path.name):
+            return None
+        with PILImage.open(path) as im:
+            return im.size[0] / zoom * 1.8
+
+    def equation(self, path: Path) -> Flowable:
+        """A formula cut from a PDF (saved at 4x): printed at its real size, scaled with the body text, centred."""
+        with PILImage.open(path) as im:
+            w = im.size[0] / 4.0
+        k = self.body_st.size / 10.0  # source formulas are set for ~10 pt text
+        return Figure(path, None, self.H * 0.25, max_w=w * k, space=(4, 8))
 
     def _bullet(self) -> dict:
         for k in ("body", "intro", "image"):
