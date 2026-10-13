@@ -13,26 +13,42 @@ Upload → Instruct → Select brand → Generate → Review → Present / Play 
 
 ---
 
-## Quick start (Windows 10/11)
+## Quick start (Windows 10/11, Windows Server 2019/2022)
 
-Double-click **`start.bat`**. That's all.
+Clone the repository and double-click **`start.bat`**. That's all.
 
-On a new PC the first run needs internet and takes roughly 5–15 minutes. It installs whatever is missing and skips anything already done:
+On a new machine the first run needs internet and takes roughly 10–30 minutes. The image libraries and models are several GB. It installs whatever is missing and skips anything already done:
 
 | Step | What happens |
 |---|---|
-| Python | uses an installed Python 3.10–3.12, or installs Python 3.12 via `winget` |
+| Visual C++ runtime | installed if missing (PyTorch and ONNX Runtime need it) |
+| Python | uses an installed Python 3.10–3.12, or installs Python 3.12 (via `winget`, or the official python.org installer when winget is missing, e.g. on Windows Server) |
 | Packages | creates a private `.venv` and installs `requirements.txt` (~300 MB) |
-| Model | downloads the ONNX embedding model (~90 MB, no torch needed) |
-| Interface | installs Node.js LTS via `winget` if needed, then builds the UI |
-| Local AI (optional, asks) | installs Ollama and the `qwen2.5:3b` model (~2 GB) and selects it automatically |
-| Video understanding (optional, asks) | downloads the `qwen2.5vl:3b` vision model (~3.2 GB) used to read demo videos frame by frame |
+| Model | downloads the ONNX embedding model (~90 MB) |
+| Interface | installs Node.js LTS (winget or the official installer) if needed, then builds the UI |
+| Image generation (asks) | detects an NVIDIA GPU (`nvidia-smi`). It installs the **CUDA build of PyTorch** on a GPU and the CPU build otherwise, plus `requirements-images.txt`, then downloads the DreamShaper 8 LCM image model (~2.2 GB) |
+| Local AI (asks) | installs Ollama, then downloads **`qwen2.5:7b`** on GPUs with 8 GB+ or `qwen2.5:3b` otherwise, and selects it |
+| Video understanding (asks) | downloads the `qwen2.5vl:3b` vision model (~3.2 GB) |
 | Launch | runs the system check, starts the server and opens **http://localhost:8000** |
 
 Later runs start in seconds and work fully offline. Close the minimised "Zensar Content Studio"
-window (or run `stop.bat`) to stop the server. Setup logs are in `logs\`.
+window (or run `stop.bat`) to stop the server. Setup logs are in `logs\`. If port 8000 is used by another
+program, the next free port is used.
 
-Unattended install: `set ZCS_ASSUME_YES=1` (accept all prompts) or `set ZCS_SKIP_AI=1` (no Ollama) before `start.bat`.
+Options (set before `start.bat`): `ZCS_ASSUME_YES=1` accepts all prompts. `ZCS_SKIP_AI=1` skips Ollama. `ZCS_SKIP_IMAGES=1` skips PyTorch and the image model. `ZCS_PORT=8000` sets the port. `ZCS_HOST=0.0.0.0` lets other computers open the app (see below).
+
+### Deploying on a Windows cloud GPU server
+
+1. Install the NVIDIA driver (cloud GPU images usually include it; check with `nvidia-smi`) and Git.
+2. `git clone https://github.com/V-JasonEmmanuel/Zen-TMT.git` and run `start.bat` from the clone, for example
+   `set ZCS_ASSUME_YES=1 && start.bat` for an unattended install.
+3. Open the app:
+   * **In a Remote Desktop session on the server**, the browser opens http://localhost:8000 by itself.
+   * **From your own computer**, choose one of these:
+     * Recommended: an SSH tunnel, `ssh -L 8000:127.0.0.1:8000 user@server`, then http://localhost:8000 on your PC.
+     * Or `set ZCS_HOST=0.0.0.0` before `start.bat`, and allow port 8000 **only from your own IP address** in the cloud firewall/security group. The app has no login.
+4. Your data does not travel with the code: `data\` (projects, papers, brand templates), `outputs\`, `models\` and licensed fonts are never committed. Re-upload the brand reference PDFs on the new server, or copy `data\branddocs\templates` and `brands\<brand>\assets\fonts` across.
+5. On a GPU the image model takes about 2 seconds per image instead of 1–2 minutes, and the 7B language model writes much faster.
 
 Developer mode (hot reload):
 
