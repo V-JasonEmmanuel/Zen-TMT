@@ -10,6 +10,9 @@
 #     ZCS_NO_BROWSER=1     do not open the browser
 #     ZCS_PORT=8000        port for the server
 #     ZCS_HOST=0.0.0.0     let other computers open the app (default 127.0.0.1 = this computer only)
+#     HTTPS_PROXY=http://proxy:port   proxy for downloads (found automatically from Git / Windows when not set)
+#     PIP_INDEX_URL=...    an internal PyPI mirror
+#   Offline install: put Python wheels in .\wheels (scripts\make_offline_bundle.bat builds them on a PC with internet)
 
 # Native tools (pip/npm/ollama) write progress to stderr; in Windows PowerShell 5.1 that must not
 # abort the script, so every step checks $LASTEXITCODE explicitly instead.
@@ -192,16 +195,85 @@ if (-not (Test-Path $VenvPy)) {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $VenvPy)) { Fail "Could not create the Python virtual environment." }
 } else { Ok "Private Python environment present" }
 
+# ---------------------------------------------------------------- network (proxy, DNS, offline wheels)
+# pip/npm/Hugging Face do not use the Windows proxy setting by themselves (git and browsers do): find it and pass it on.
+function Find-Proxy {
+    if ($env:HTTPS_PROXY) { return $env:HTTPS_PROXY }
+    if ($env:HTTP_PROXY) { return $env:HTTP_PROXY }
+    try { $g = (& git config --get https.proxy 2>$null); if (-not $g) { $g = (& git config --get http.proxy 2>$null) }; if ($g) { return $g.Trim() } } catch { }
+    try {
+        $sys = [System.Net.WebRequest]::GetSystemWebProxy()
+        $target = [Uri]"https://pypi.org/simple/"
+        $px = $sys.GetProxy($target)
+        if ($px -and $px.Host -ne $target.Host) { return $px.AbsoluteUri.TrimEnd("/") }
+    } catch { }
+    try {
+        $w = (& netsh winhttp show proxy) -join " "
+        if ($w -match "Proxy Server\(s\)\s*:\s*(\S+)") {
+            $v = $Matches[1]; if ($v -match "https=([^;]+)") { $v = $Matches[1] } elseif ($v -match "http=([^;]+)") { $v = $Matches[1] }
+            if ($v -notmatch "^https?://") { $v = "http://$v" }
+            return $v
+        }
+    } catch { }
+    return $null
+}
+$Wheels = Join-Path $Root "wheels"
+$Offline = (Test-Path $Wheels) -and (@(Get-ChildItem $Wheels -Filter *.whl -ErrorAction SilentlyContinue).Count -gt 0)
+$Proxy = Find-Proxy
+if ($Proxy) {
+    $env:HTTPS_PROXY = $Proxy; $env:HTTP_PROXY = $Proxy
+    if (-not $env:NO_PROXY) { $env:NO_PROXY = "localhost,127.0.0.1" }
+    Info "Using the proxy $Proxy for downloads"
+}
+$IndexHost = if ($env:PIP_INDEX_URL) { ([Uri]$env:PIP_INDEX_URL).Host } else { "pypi.org" }
+function Test-Reach($url) {
+    try {
+        $req = [System.Net.WebRequest]::Create($url); $req.Timeout = 15000; $req.Method = "HEAD"
+        if ($Proxy) { $req.Proxy = New-Object System.Net.WebProxy($Proxy, $true) }
+        $resp = $req.GetResponse(); $resp.Close(); return $true
+    } catch [System.Net.WebException] {
+        if ($_.Exception.Response) { return $true }  # the server answered (e.g. 404/405): reachable
+        return $false
+    } catch { return $false }
+}
+function Network-Help($what) {
+    Write-Host ""
+    Write-Host "    This computer cannot reach $what." -ForegroundColor Yellow
+    $dns = $null; try { $dns = Resolve-DnsName $IndexHost -ErrorAction Stop } catch { }
+    if (-not $dns -and -not $Proxy) {
+        Write-Host "    The name $IndexHost cannot be resolved (DNS). Usually the network needs a proxy:" -ForegroundColor Yellow
+        Write-Host "      set HTTPS_PROXY=http://<proxy-host>:<port>   then run start.bat again" -ForegroundColor Yellow
+        Write-Host "    or the server's DNS settings need fixing (ask the cloud/network admin)." -ForegroundColor Yellow
+    } elseif ($Proxy) {
+        Write-Host "    The proxy $Proxy did not let the request through (it may need a login or an allow-list for $IndexHost)." -ForegroundColor Yellow
+    } else {
+        Write-Host "    $IndexHost resolves but the connection is blocked (firewall / security group outbound rules)." -ForegroundColor Yellow
+    }
+    Write-Host "    Other options: PIP_INDEX_URL=<internal PyPI mirror>, or an offline install - run" -ForegroundColor Yellow
+    Write-Host "    scripts\make_offline_bundle.bat on a PC with internet and copy its 'wheels' folder here." -ForegroundColor Yellow
+}
+$PipNet = if ($Proxy) { "--proxy `"$Proxy`"" } else { "" }
+
 # ---------------------------------------------------------------- 2. Python packages
 Step 2 "Python packages"
 $reqHash = File-Hash @((Join-Path $Root "requirements.txt"))
 $reqMark = Join-Path $Root ".venv\.zcs_requirements"
 if (-not (Test-Path $reqMark) -or (Get-Content $reqMark -Raw).Trim() -ne $reqHash) {
-    Info "Installing packages (first run downloads ~300 MB)..."
     $pipLog = Join-Path $LogDir "pip.log"
-    Run-Logged $VenvPy "-m pip install --upgrade pip --disable-pip-version-check -q" $pipLog | Out-Null
-    $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements.txt')`" --disable-pip-version-check" $pipLog
-    if ($rc -ne 0) { Fail "Python package installation failed (see logs\pip.log). Check the internet connection and try again." }
+    if ($Offline) {
+        Info "Installing packages from the offline 'wheels' folder..."
+        $rc = Run-Logged $VenvPy "-m pip install --no-index --find-links `"$Wheels`" -r `"$(Join-Path $Root 'requirements.txt')`" --disable-pip-version-check" $pipLog
+    } else {
+        if (-not (Test-Reach "https://$IndexHost/simple/pip/")) { Network-Help "the Python package index ($IndexHost)"; Fail "Python packages cannot be downloaded (no connection to $IndexHost)." }
+        Info "Installing packages (first run downloads ~300 MB)..."
+        Run-Logged $VenvPy "-m pip install --upgrade pip --disable-pip-version-check -q $PipNet" $pipLog | Out-Null
+        $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements.txt')`" --disable-pip-version-check $PipNet" $pipLog
+    }
+    if ($rc -ne 0) {
+        $tail = (Get-Content $pipLog -Tail 6 -ErrorAction SilentlyContinue) -join "`n"
+        if ($tail -match "getaddrinfo|NewConnectionError|ProxyError|SSLError|ConnectTimeout|Max retries") { Network-Help "the Python package index ($IndexHost)" }
+        Fail "Python package installation failed (see logs\pip.log)."
+    }
     Set-Content $reqMark $reqHash
     Ok "Packages installed"
 } else { Ok "Packages up to date" }
@@ -249,8 +321,9 @@ if ($needBuild) {
         $npmLog = Join-Path $LogDir "npm.log"
         $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
         if (-not $npm) { $npm = "npm.cmd" }
-        $rc = Run-Logged $npm "ci --no-audit --no-fund" $npmLog
-        if ($rc -ne 0) { $rc = Run-Logged $npm "install --no-audit --no-fund" $npmLog }
+        $npmNet = if ($Proxy) { "--proxy=$Proxy --https-proxy=$Proxy" } else { "" }
+        $rc = Run-Logged $npm "ci --no-audit --no-fund $npmNet" $npmLog
+        if ($rc -ne 0) { $rc = Run-Logged $npm "install --no-audit --no-fund $npmNet" $npmLog }
         if ($rc -ne 0) { Fail "Interface packages could not be installed (see logs\npm.log)." }
         Info "Building the interface..."
         $rc = Run-Logged $npm "run build" $npmLog
@@ -285,9 +358,13 @@ if ($env:ZCS_SKIP_IMAGES -eq "1") {
         if (Ask "    Install PyTorch for local image generation ($what)?") {
             $pipLog = Join-Path $LogDir "pip.log"
             Info "Installing PyTorch ($flavour)..."
-            $rc = Run-Logged $VenvPy "-m pip install torch --index-url https://download.pytorch.org/whl/$flavour --disable-pip-version-check" $pipLog
-            if ($rc -eq 0) {
-                $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements-images.txt')`" --disable-pip-version-check" $pipLog
+            if ($Offline) {
+                $rc = Run-Logged $VenvPy "-m pip install --no-index --find-links `"$Wheels`" torch -r `"$(Join-Path $Root 'requirements-images.txt')`" --disable-pip-version-check" $pipLog
+            } else {
+                $rc = Run-Logged $VenvPy "-m pip install torch --index-url https://download.pytorch.org/whl/$flavour --disable-pip-version-check $PipNet" $pipLog
+                if ($rc -eq 0) {
+                    $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements-images.txt')`" --disable-pip-version-check $PipNet" $pipLog
+                }
             }
             if ($rc -eq 0) { Set-Content $imgMark $imgHash; Ok "Image libraries installed" }
             else { Warn "Image libraries could not be installed (see logs\pip.log); brand documents will use artwork instead." }

@@ -40,3 +40,6 @@ tests/fixtures/invoiceflow_spec.md
 tests/fixtures/music_bed.mp3
 tests/fixtures/office.jpg
 tests/fixtures/my_voice.wav
+
+# Offline install bundle (scripts/make_offline_bundle.bat)
+/wheels/
