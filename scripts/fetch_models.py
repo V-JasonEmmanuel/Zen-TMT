@@ -51,7 +51,19 @@ def fetch_image_model() -> int:
         return 1
     out = ROOT / "models" / "imagegen" / "dreamshaper-8-lcm"
     print(f"Downloading the image model {IMAGE_REPO} (~2.2 GB) ...")
-    snapshot_download(IMAGE_REPO, local_dir=str(out), allow_patterns=["*.json", "*.txt", "tokenizer/*", "DreamShaper8_LCM.safetensors"])
+    # the app runs with HF_HUB_OFFLINE=1 (set when backend modules are imported); this one-time download runs in
+    # a clean process where downloads are allowed
+    import os
+    import subprocess
+
+    code = ("from huggingface_hub import snapshot_download; "
+            f"snapshot_download({IMAGE_REPO!r}, local_dir={str(out)!r}, "
+            "allow_patterns=['*.json', '*.txt', 'tokenizer/*', 'DreamShaper8_LCM.safetensors'])")
+    env = {**os.environ, "HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "0", "HF_HUB_DISABLE_TELEMETRY": "1"}
+    rc = subprocess.run([sys.executable, "-c", code], env=env).returncode
+    if rc != 0 or not (out / "DreamShaper8_LCM.safetensors").exists():
+        print("The image model could not be downloaded.")
+        return 1
     print(f"Image model ready ({out})")
     return 0
 
