@@ -23,7 +23,8 @@ venv/
 
 # Frontend
 frontend/node_modules/
-frontend/dist/
+# the built interface is committed (servers without Node.js / npm access use it); only the build marker is local
+frontend/dist/.zcs_build
 
 # Generated test fixtures (tests create their own)
 tests/fixtures/sample_research.pdf
@@ -43,3 +44,6 @@ tests/fixtures/my_voice.wav
 
 # Offline install bundle (scripts/make_offline_bundle.bat)
 /wheels/
+
+# Offline bundle cloned by start.bat when pypi.org is unreachable
+/offline/

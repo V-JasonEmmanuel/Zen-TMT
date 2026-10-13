@@ -50,6 +50,17 @@ Options (set before `start.bat`): `ZCS_ASSUME_YES=1` accepts all prompts. `ZCS_S
 4. Your data does not travel with the code: `data\` (projects, papers, brand templates), `outputs\`, `models\` and licensed fonts are never committed. Re-upload the brand reference PDFs on the new server, or copy `data\branddocs\templates` and `brands\<brand>\assets\fonts` across.
 5. On a GPU the image model takes about 2 seconds per image instead of 1–2 minutes, and the 7B language model writes much faster.
 
+**Behind a corporate proxy that allows only GitHub.** When pypi.org cannot be reached, `start.bat` switches to the **offline bundle**: [Zen-TMT-offline](https://github.com/V-JasonEmmanuel/Zen-TMT-offline). It is fetched with git, the same channel that cloned this repository, and contains:
+* every Python package for Windows x64 + Python 3.12, including PyTorch with CUDA 12.4;
+* the embedding model and the image model;
+* the Visual C++ runtime.
+
+The files are reassembled and checked against their SHA-256 checksums, then installed with no other download. The interface is prebuilt (`frontend/dist`), so Node.js and npm are not needed.
+
+What still needs a download outside GitHub is **Ollama** and its language model (ollama.com). Install them from a machine that can reach ollama.com and copy `%USERPROFILE%\.ollama\models` across, or ask IT to allow ollama.com and registry.ollama.ai. Without them the app condenses documents by selecting their key sentences.
+
+Use Python **3.12** on the server (the bundle's packages are built for it). `set ZCS_OFFLINE=1` forces the bundle. A proxy set in Windows or git is detected and passed to pip, npm and the model downloads.
+
 Developer mode (hot reload):
 
 ```bat

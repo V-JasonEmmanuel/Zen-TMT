@@ -12,7 +12,10 @@
 #     ZCS_HOST=0.0.0.0     let other computers open the app (default 127.0.0.1 = this computer only)
 #     HTTPS_PROXY=http://proxy:port   proxy for downloads (found automatically from Git / Windows when not set)
 #     PIP_INDEX_URL=...    an internal PyPI mirror
-#   Offline install: put Python wheels in .\wheels (scripts\make_offline_bundle.bat builds them on a PC with internet)
+#     ZCS_OFFLINE=1        always install from the offline bundle (git), even when pypi.org is reachable
+#     ZCS_OFFLINE_REPO=... git URL of the offline bundle (default: github.com/V-JasonEmmanuel/Zen-TMT-offline)
+#   When pypi.org cannot be reached (corporate proxy), every package and model comes from the offline bundle
+#   repository over git - the same channel that cloned this repository.
 
 # Native tools (pip/npm/ollama) write progress to stderr; in Windows PowerShell 5.1 that must not
 # abort the script, so every step checks $LASTEXITCODE explicitly instead.
@@ -254,6 +257,51 @@ function Network-Help($what) {
 }
 $PipNet = if ($Proxy) { "--proxy `"$Proxy`"" } else { "" }
 
+# ---------------------------------------------------------------- offline bundle (git) when pypi.org is out of reach
+$OfflineRepo = if ($env:ZCS_OFFLINE_REPO) { $env:ZCS_OFFLINE_REPO } else { "https://github.com/V-JasonEmmanuel/Zen-TMT-offline.git" }
+$Bundle = Join-Path $Root "offline"
+$Assembled = Join-Path $Bundle "_assembled"
+$reqMarkPre = Join-Path $Root ".venv\.zcs_requirements"
+$needPkgs = -not (Test-Path $reqMarkPre) -or ((Get-Content $reqMarkPre -Raw).Trim() -ne (File-Hash @((Join-Path $Root "requirements.txt"))))
+$needModels = -not (Test-Path (Join-Path $Root "models\embeddings\sentence-transformers__all-MiniLM-L6-v2\model.onnx"))
+$needImages = ($env:ZCS_SKIP_IMAGES -ne "1") -and (-not (Test-Path (Join-Path $Root ".venv\.zcs_images")) -or
+              -not (Test-Path (Join-Path $Root "models\imagegen\dreamshaper-8-lcm\DreamShaper8_LCM.safetensors")))
+if (-not $Offline -and ($needPkgs -or $needModels -or $needImages)) {
+    $useBundle = ($env:ZCS_OFFLINE -eq "1") -or (Test-Path (Join-Path $Assembled ".assembled"))
+    if (-not $useBundle -and -not (Test-Reach "https://$IndexHost/simple/pip/")) {
+        Info "$IndexHost cannot be reached - using the offline bundle from GitHub (git)"
+        $useBundle = $true
+    }
+    if ($useBundle) {
+        Step "1b" "Offline bundle (packages + models over git)"
+        if (Test-Path (Join-Path $Bundle ".git")) {
+            Info "Updating the offline bundle..."
+            & git -C $Bundle pull --ff-only -q
+        } else {
+            Info "Downloading the offline bundle with git (~3-5 GB, one time)..."
+            & git clone --depth 1 $OfflineRepo $Bundle
+            if ($LASTEXITCODE -ne 0) { Fail "The offline bundle could not be cloned from $OfflineRepo (git)." }
+        }
+        & $VenvPy (Join-Path $Root "scripts\offline_bundle.py") assemble $Bundle $Assembled
+        if ($LASTEXITCODE -ne 0) { Fail "The offline bundle is incomplete or damaged (see above)." }
+        $Wheels = Join-Path $Assembled "wheels"
+        $Offline = $true
+        foreach ($rel in @("models\embeddings", "models\imagegen")) {
+            $src = Join-Path $Assembled $rel
+            if (Test-Path $src) {
+                $dst = Join-Path $Root $rel
+                New-Item -ItemType Directory -Force $dst | Out-Null
+                Copy-Item -Path (Join-Path $src "*") -Destination $dst -Recurse -Force
+            }
+        }
+        $vc = Join-Path $Assembled "extras\vc_redist.x64.exe"
+        if (-not (Test-Path "$env:SystemRoot\System32\vcruntime140_1.dll") -and (Test-Path $vc)) {
+            Start-Process $vc -ArgumentList "/install /quiet /norestart" -Wait
+        }
+        Ok "Offline bundle ready"
+    }
+}
+
 # ---------------------------------------------------------------- 2. Python packages
 Step 2 "Python packages"
 $reqHash = File-Hash @((Join-Path $Root "requirements.txt"))
@@ -287,6 +335,7 @@ if (-not (Test-Path $EnvFile)) { Copy-Item (Join-Path $Root ".env.example") $Env
 Step 4 "Document understanding model"
 $onnx = Join-Path $Root "models\embeddings\sentence-transformers__all-MiniLM-L6-v2\model.onnx"
 if (-not (Test-Path $onnx)) {
+    if ($Offline) { Fail "The embedding model is missing from the offline bundle." }
     Info "Downloading the embedding model (~90 MB, one time)..."
     & $VenvPy (Join-Path $Root "scripts\fetch_models.py")
     if ($LASTEXITCODE -ne 0) { Fail "The embedding model could not be downloaded. Check the internet connection and try again." }
@@ -307,13 +356,23 @@ $srcFiles = @(Get-ChildItem (Join-Path $front "src") -Recurse -File | Sort-Objec
 $uiHash = File-Hash (@((Join-Path $front "package-lock.json"), (Join-Path $front "index.html"), (Join-Path $front "vite.config.ts")) + $srcFiles)
 $uiMark = Join-Path $front "dist\.zcs_build"
 $needBuild = -not (Test-Path $dist) -or -not (Test-Path $uiMark) -or ((Get-Content $uiMark -Raw).Trim() -ne $uiHash)
+$prebuilt = Test-Path $dist
+if ($needBuild -and $prebuilt -and -not (Node-Ok) -and ($Offline -or $env:ZCS_OFFLINE -eq "1")) {
+    $needBuild = $false
+    Ok "Using the prebuilt interface (Node.js is not needed)"
+}
 if ($needBuild) {
     if (-not (Node-Ok)) {
         Winget-Install "OpenJS.NodeJS.LTS" "Node.js LTS" @()
         $nodeDir = "$env:ProgramFiles\nodejs"
         if (Test-Path "$nodeDir\node.exe") { $env:Path = "$nodeDir;$env:Path" }
-        if (-not (Node-Ok)) { Fail "Node.js 18+ could not be installed automatically. Install it from https://nodejs.org/ and run start.bat again." }
+        if (-not (Node-Ok)) {
+            if ($prebuilt) { Warn "Node.js could not be installed - using the prebuilt interface"; $needBuild = $false }
+            else { Fail "Node.js 18+ could not be installed automatically. Install it from https://nodejs.org/ and run start.bat again." }
+        }
     }
+}
+if ($needBuild) {
     Ok "Node $(& node --version)"
     Push-Location $front
     try {
@@ -324,13 +383,14 @@ if ($needBuild) {
         $npmNet = if ($Proxy) { "--proxy=$Proxy --https-proxy=$Proxy" } else { "" }
         $rc = Run-Logged $npm "ci --no-audit --no-fund $npmNet" $npmLog
         if ($rc -ne 0) { $rc = Run-Logged $npm "install --no-audit --no-fund $npmNet" $npmLog }
-        if ($rc -ne 0) { Fail "Interface packages could not be installed (see logs\npm.log)." }
-        Info "Building the interface..."
-        $rc = Run-Logged $npm "run build" $npmLog
-        if ($rc -ne 0 -or -not (Test-Path $dist)) { Fail "The interface build failed (see logs\npm.log)." }
+        if ($rc -eq 0) {
+            Info "Building the interface..."
+            $rc = Run-Logged $npm "run build" $npmLog
+        }
     } finally { Pop-Location }
-    Set-Content $uiMark $uiHash
-    Ok "Interface built"
+    if ($rc -eq 0 -and (Test-Path $dist)) { Set-Content $uiMark $uiHash; Ok "Interface built" }
+    elseif ($prebuilt) { Warn "The interface could not be rebuilt (npm registry unreachable?) - using the prebuilt interface" }
+    else { Fail "The interface build failed (see logs\npm.log)." }
 } else { Ok "Interface up to date" }
 
 # ---------------------------------------------------------------- GPU
@@ -359,11 +419,11 @@ if ($env:ZCS_SKIP_IMAGES -eq "1") {
             $pipLog = Join-Path $LogDir "pip.log"
             Info "Installing PyTorch ($flavour)..."
             if ($Offline) {
-                $rc = Run-Logged $VenvPy "-m pip install --no-index --find-links `"$Wheels`" torch -r `"$(Join-Path $Root 'requirements-images.txt')`" --disable-pip-version-check" $pipLog
+                $rc = Run-Logged $VenvPy "-m pip install --no-index --find-links `"$Wheels`" torch -r `"$(Join-Path $Root 'requirements-images.txt')`" -c `"$(Join-Path $Root 'requirements.txt')`" --disable-pip-version-check" $pipLog
             } else {
                 $rc = Run-Logged $VenvPy "-m pip install torch --index-url https://download.pytorch.org/whl/$flavour --disable-pip-version-check $PipNet" $pipLog
                 if ($rc -eq 0) {
-                    $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements-images.txt')`" --disable-pip-version-check $PipNet" $pipLog
+                    $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements-images.txt')`" -c `"$(Join-Path $Root 'requirements.txt')`" --disable-pip-version-check $PipNet" $pipLog
                 }
             }
             if ($rc -eq 0) { Set-Content $imgMark $imgHash; Ok "Image libraries installed" }
@@ -371,7 +431,7 @@ if ($env:ZCS_SKIP_IMAGES -eq "1") {
         }
     } else { Ok "Image libraries present ($flavour)" }
     $ckpt = Join-Path $Root "models\imagegen\dreamshaper-8-lcm\DreamShaper8_LCM.safetensors"
-    if ((Test-Path $imgMark) -and -not (Test-Path $ckpt)) {
+    if ((Test-Path $imgMark) -and -not (Test-Path $ckpt) -and -not $Offline) {
         if (Ask "    Download the image model DreamShaper 8 LCM (~2.2 GB, one time)?") {
             & $VenvPy (Join-Path $Root "scripts\fetch_models.py") --images
             if ($LASTEXITCODE -ne 0) { Warn "The image model could not be downloaded; run start.bat again later." }
@@ -445,7 +505,8 @@ if ($env:ZCS_SKIP_AI -eq "1") {
             else { Warn "No local model installed; the app will use fast extractive mode." }
         }
     } else {
-        Info "Not installed. The app works in fast extractive mode; install Ollama later for AI writing."
+        Info "Not installed. The app works in fast extractive mode (key sentences, wording unchanged)."
+        Info "For AI writing install Ollama (https://ollama.com) and run: ollama pull qwen2.5:7b - then start.bat again."
     }
 }
 
