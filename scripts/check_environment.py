@@ -43,11 +43,14 @@ def main() -> int:
         failures.append("Python 3.10+ is required")
 
     node = shutil.which("node")
+    prebuilt = (ROOT / "frontend" / "dist" / "index.html").exists()
     if node:
         v = subprocess.run([node, "--version"], capture_output=True, text=True).stdout.strip()
         line(True, "Node", v)
+    elif prebuilt:
+        line(None, "Node", "not installed - the prebuilt interface is used (Node is only needed to change the UI)")
     else:
-        line(False, "Node", "not found (needed to run/build the web interface)")
+        line(False, "Node", "not found (needed to build the web interface)")
         failures.append("Node.js 18+ is required for the interface")
     nm = (ROOT / "frontend" / "node_modules").exists()
     dist = (ROOT / "frontend" / "dist" / "index.html").exists()
