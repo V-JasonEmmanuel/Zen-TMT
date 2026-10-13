@@ -1,11 +1,15 @@
-# Zensar Content Studio - one-click setup + launch (Windows 10/11, Windows PowerShell 5.1+).
+# Zensar Content Studio - one-click setup + launch (Windows 10/11 and Windows Server 2019/2022, PowerShell 5.1+).
 # Called by start.bat. Safe to run repeatedly: every step is skipped when already done.
+# Works without winget (Windows Server): Python, Node.js and Ollama are then downloaded from their official sites.
+# On a machine with an NVIDIA GPU the GPU (CUDA) build of PyTorch is installed for image generation.
 #
 #   Environment switches (optional):
 #     ZCS_SKIP_AI=1        do not offer to install Ollama / a local model
+#     ZCS_SKIP_IMAGES=1    do not install local image generation (PyTorch + image model, ~5 GB)
 #     ZCS_ASSUME_YES=1     answer "yes" to all prompts (unattended install)
 #     ZCS_NO_BROWSER=1     do not open the browser
-#     ZCS_PORT=8000        port for the local server
+#     ZCS_PORT=8000        port for the server
+#     ZCS_HOST=0.0.0.0     let other computers open the app (default 127.0.0.1 = this computer only)
 
 # Native tools (pip/npm/ollama) write progress to stderr; in Windows PowerShell 5.1 that must not
 # abort the script, so every step checks $LASTEXITCODE explicitly instead.
@@ -16,7 +20,10 @@ $env:PYTHONIOENCODING = "utf-8"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $Port = if ($env:ZCS_PORT) { [int]$env:ZCS_PORT } else { 8000 }
+$BindHost = if ($env:ZCS_HOST) { $env:ZCS_HOST } else { "127.0.0.1" }
 $Url = "http://localhost:$Port"
+# Windows Server's PowerShell 5.1 defaults to old TLS versions that python.org / nodejs.org refuse
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $LogDir = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 
@@ -60,8 +67,39 @@ function Run-Logged($exe, [string]$arguments, $log) {
     return $p.ExitCode
 }
 function Have-Winget { return [bool](Get-Command winget -ErrorAction SilentlyContinue) }
+function Download($url, $dest) {
+    Info "Downloading $url"
+    try { Invoke-WebRequest -UseBasicParsing $url -OutFile $dest -TimeoutSec 1800; return $true }
+    catch { Warn "Download failed: $($_.Exception.Message)"; return $false }
+}
+# Without winget (Windows Server): official installers, silent, for the current user where possible
+function Direct-Install($name) {
+    $tmp = Join-Path $env:TEMP "zcs-setup"
+    New-Item -ItemType Directory -Force $tmp | Out-Null
+    switch ($name) {
+        "Python 3.12" {
+            $f = Join-Path $tmp "python-3.12.8-amd64.exe"
+            if (Download "https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe" $f) {
+                Start-Process $f -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_test=0" -Wait
+            }
+        }
+        "Node.js LTS" {
+            $f = Join-Path $tmp "node-v20.18.1-x64.msi"
+            if (Download "https://nodejs.org/dist/v20.18.1/node-v20.18.1-x64.msi" $f) {
+                Start-Process msiexec -ArgumentList "/i `"$f`" /qn /norestart" -Wait
+            }
+        }
+        "Ollama" {
+            $f = Join-Path $tmp "OllamaSetup.exe"
+            if (Download "https://ollama.com/download/OllamaSetup.exe" $f) {
+                Start-Process $f -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+            }
+        }
+    }
+    Refresh-Path
+}
 function Winget-Install($id, $name, $extra) {
-    if (-not (Have-Winget)) { Fail "$name is not installed and winget is unavailable. Install $name manually, then run start.bat again." }
+    if (-not (Have-Winget)) { Info "winget is not available - using the official $name installer"; Direct-Install $name; return }
     Info "Installing $name with winget (this can take a few minutes)..."
     $wargs = @("install", "-e", "--id", $id, "--silent", "--accept-package-agreements", "--accept-source-agreements") + $extra
     $p = Start-Process winget -ArgumentList $wargs -Wait -PassThru -NoNewWindow
@@ -103,6 +141,16 @@ if ($state -eq "other") {
     }
     $Url = "http://localhost:$Port"
     Warn "Port $orig is used by another program - Content Studio will use port $Port"
+}
+
+# ---------------------------------------------------------------- 0. Visual C++ runtime (PyTorch / ONNX Runtime need it)
+if (-not (Test-Path "$env:SystemRoot\System32\vcruntime140_1.dll")) {
+    Step 0 "Microsoft Visual C++ runtime"
+    $vc = Join-Path $env:TEMP "vc_redist.x64.exe"
+    if (Download "https://aka.ms/vs/17/release/vc_redist.x64.exe" $vc) {
+        Start-Process $vc -ArgumentList "/install /quiet /norestart" -Wait
+        Ok "Visual C++ runtime installed"
+    } else { Warn "Install the Visual C++ runtime (https://aka.ms/vs/17/release/vc_redist.x64.exe) if the app fails to start." }
 }
 
 # ---------------------------------------------------------------- 1. Python 3.10-3.12
@@ -212,8 +260,54 @@ if ($needBuild) {
     Ok "Interface built"
 } else { Ok "Interface up to date" }
 
-# ---------------------------------------------------------------- 6. Local AI (optional)
-Step 6 "Local AI (optional)"
+# ---------------------------------------------------------------- GPU
+$Gpu = $null; $GpuMemGB = 0
+$smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+if (-not $smi -and (Test-Path "$env:SystemRoot\System32\nvidia-smi.exe")) { $smi = Get-Command "$env:SystemRoot\System32\nvidia-smi.exe" }
+if ($smi) {
+    try {
+        $q = (& $smi.Source --query-gpu=name,memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)
+        if ($q) { $parts = $q.Split(","); $Gpu = $parts[0].Trim(); $GpuMemGB = [math]::Round([double]$parts[1].Trim() / 1024, 1) }
+    } catch { }
+}
+
+# ---------------------------------------------------------------- 6. Image generation (Brand Documents)
+Step 6 "Image generation (Brand Documents)"
+if ($env:ZCS_SKIP_IMAGES -eq "1") {
+    Info "Skipped (ZCS_SKIP_IMAGES=1). Brand documents use brand-coloured artwork instead of generated images."
+} else {
+    $flavour = if ($Gpu) { "cu124" } else { "cpu" }
+    $imgMark = Join-Path $Root ".venv\.zcs_images"
+    $imgHash = "$flavour|" + (File-Hash @((Join-Path $Root "requirements-images.txt")))
+    $haveImg = (Test-Path $imgMark) -and ((Get-Content $imgMark -Raw).Trim() -eq $imgHash)
+    if (-not $haveImg) {
+        $what = if ($Gpu) { "GPU build for $Gpu, ~2.5 GB" } else { "CPU build, ~250 MB - no NVIDIA GPU found" }
+        if (Ask "    Install PyTorch for local image generation ($what)?") {
+            $pipLog = Join-Path $LogDir "pip.log"
+            Info "Installing PyTorch ($flavour)..."
+            $rc = Run-Logged $VenvPy "-m pip install torch --index-url https://download.pytorch.org/whl/$flavour --disable-pip-version-check" $pipLog
+            if ($rc -eq 0) {
+                $rc = Run-Logged $VenvPy "-m pip install -r `"$(Join-Path $Root 'requirements-images.txt')`" --disable-pip-version-check" $pipLog
+            }
+            if ($rc -eq 0) { Set-Content $imgMark $imgHash; Ok "Image libraries installed" }
+            else { Warn "Image libraries could not be installed (see logs\pip.log); brand documents will use artwork instead." }
+        }
+    } else { Ok "Image libraries present ($flavour)" }
+    $ckpt = Join-Path $Root "models\imagegen\dreamshaper-8-lcm\DreamShaper8_LCM.safetensors"
+    if ((Test-Path $imgMark) -and -not (Test-Path $ckpt)) {
+        if (Ask "    Download the image model DreamShaper 8 LCM (~2.2 GB, one time)?") {
+            & $VenvPy (Join-Path $Root "scripts\fetch_models.py") --images
+            if ($LASTEXITCODE -ne 0) { Warn "The image model could not be downloaded; run start.bat again later." }
+        }
+    }
+    if (Test-Path $ckpt) {
+        $where = if ($Gpu) { "GPU: $Gpu, $GpuMemGB GB" } else { "CPU" }
+        Ok "Image model ready ($where)"
+    }
+}
+
+# ---------------------------------------------------------------- 7. Local AI (optional)
+Step 7 "Local AI (optional)"
 function Find-Ollama {
     $c = Get-Command ollama -ErrorAction SilentlyContinue
     if ($c) { return $c.Source }
@@ -245,9 +339,12 @@ if ($env:ZCS_SKIP_AI -eq "1") {
         if ($null -eq $models) {
             Warn "Ollama is installed but not responding; AI writing will be available once Ollama is running."
         } else {
-            if ($models.Count -eq 0) {
-                if (Ask "    Download the recommended local model qwen2.5:3b (~2 GB, one time)?") {
-                    & $ollama pull qwen2.5:3b
+            # a GPU with 8 GB or more runs the 7B model quickly (better writing); otherwise the 3B model
+            $want = if ($GpuMemGB -ge 7.5) { "qwen2.5:7b" } else { "qwen2.5:3b" }
+            if (-not ($models | Where-Object { $_ -like "$want*" -or ($want -eq "qwen2.5:7b" -and $_ -like "qwen2.5:latest") })) {
+                $size = if ($want -eq "qwen2.5:7b") { "~4.7 GB" } else { "~2 GB" }
+                if (Ask "    Download the recommended local model $want ($size, one time)?") {
+                    & $ollama pull $want
                     $models = Ollama-Models
                 }
             }
@@ -259,7 +356,7 @@ if ($env:ZCS_SKIP_AI -eq "1") {
             }
             $envText = Get-Content $EnvFile -Raw
             if ($models -and $models.Count -gt 0 -and $envText -match "(?m)^OLLAMA_MODEL=\s*$") {
-                $pick = ($models | Where-Object { $_ -like "qwen2.5:3b*" } | Select-Object -First 1)
+                $pick = ($models | Where-Object { $_ -like "$want*" } | Select-Object -First 1)
                 $text = @($models | Where-Object { $_ -notmatch "vl|llava|moondream|vision" })  # vision models only describe frames
                 if (-not $pick) { $pick = ($text | Where-Object { $_ -like "qwen*" -or $_ -like "llama*" -or $_ -like "phi*" } | Select-Object -First 1) }
                 if (-not $pick -and $text.Count -gt 0) { $pick = $text[0] }
@@ -276,13 +373,23 @@ if ($env:ZCS_SKIP_AI -eq "1") {
 }
 
 # ---------------------------------------------------------------- 7. Check + launch
-Step 7 "System check"
+Step 8 "System check"
 & $VenvPy (Join-Path $Root "scripts\check_environment.py")
 if ($LASTEXITCODE -ne 0) { Fail "The system check reported a missing required component (see above)." }
 
-Step 8 "Starting Content Studio"
+Step 9 "Starting Content Studio"
 $server = "`"$VenvPy`" backend\main.py 1>> logs\server.log 2>&1"
 $env:BACKEND_PORT = "$Port"
+$env:BACKEND_HOST = $BindHost
+if ($BindHost -ne "127.0.0.1" -and $BindHost -ne "localhost") {
+    # other computers may open the app: allow the port through Windows Firewall (needs an administrator prompt)
+    $rule = "Zensar Content Studio $Port"
+    if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
+        try { New-NetFirewallRule -DisplayName $rule -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -ErrorAction Stop | Out-Null; Ok "Firewall: port $Port opened" }
+        catch { Warn "Could not open port $Port in Windows Firewall (run start.bat as administrator once, or open it in the cloud firewall)." }
+    }
+    Warn "The app has no login: allow only your own IP address in the cloud firewall / security group."
+}
 Start-Process cmd -ArgumentList "/c", "title Zensar Content Studio (close to stop) && $server" -WorkingDirectory $Root -WindowStyle Minimized
 $up = $false
 for ($i = 0; $i -lt 90 -and -not $up; $i++) {
@@ -294,5 +401,9 @@ Ok "Running at $Url"
 if ($env:ZCS_NO_BROWSER -ne "1") { Start-Process $Url }
 Write-Host ""
 Write-Host "Content Studio is running at $Url" -ForegroundColor Green
+if ($BindHost -ne "127.0.0.1" -and $BindHost -ne "localhost") {
+    $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | ForEach-Object { $_.IPAddress })
+    foreach ($ip in $ips) { Write-Host "From another computer: http://${ip}:$Port  (or the server's public IP)" -ForegroundColor Green }
+}
 Write-Host "Everything runs on this computer. To stop it, close the 'Zensar Content Studio' window (or run stop.bat)."
 exit 0

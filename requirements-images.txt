@@ -1,0 +1,6 @@
+# Local image generation for Brand Documents (installed by start.bat after PyTorch).
+# PyTorch itself comes from https://download.pytorch.org/whl/cu124 (NVIDIA GPU) or /whl/cpu.
+diffusers>=0.30,<0.33
+transformers>=4.40,<5
+safetensors>=0.4
+huggingface_hub>=0.23
