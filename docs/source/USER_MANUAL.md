@@ -4,26 +4,25 @@ This manual explains how to start Zensar Content Studio on a computer where it i
 
 > Run every command from the **project folder**: the folder that contains `start.bat`, `backend\` and `frontend\`.
 >
-> **Project files location:** the code is on GitHub at **https://github.com/V-JasonEmmanuel/Zen-TMT**. On a computer where it is installed, the project folder is wherever it was cloned or extracted, for example `D:\Zen-TMT`. In the examples below, replace `D:\Zen-TMT` with your own folder.
+> **Project files location:** the code is on GitHub at **https://github.com/V-JasonEmmanuel/Zen-TMT**. Every path in this manual starts from the project folder, for example `scriptsetch_models.py` means the file `fetch_models.py` inside the `scripts` folder of the project folder.
 
 If Zensar Content Studio is already installed on the computer, together with its prerequisites (Python, the Python packages, the AI models and Ollama), you do **not** need the fresh installation steps (sections 1–10). Follow sections A1–A8 each time you want to start the application.
 
 ## A1. Before you start
 
 * Log in to the computer or cloud server (for a cloud server, use **Remote Desktop**) with your username and password.
-* Have the project folder path ready, for example `D:\Zen-TMT`. It is the folder that contains `start.bat`.
+* Know where the project folder is on that computer. It is the folder that contains `start.bat`.
 * Open the web browser **on that computer itself** (for example inside your Remote Desktop session). The application listens on `127.0.0.1` / `localhost`, so another computer's browser cannot open it unless you follow section A7.
 * You need only **one** window. `start.bat` starts the backend and the frontend together; you do not need separate terminals.
 
 ## A2. Open the project folder
 
 1. Press **Windows key + E** to open **File Explorer**.
-2. Go to the project folder, for example `D:\Zen-TMT`.
+2. Go to the project folder.
 
-Or open **Windows PowerShell** and move to the folder:
+To open **Windows PowerShell** in the project folder: in File Explorer, click the address bar, type `powershell` and press **Enter**. Then list the files:
 
 ```
-cd D:\Zen-TMT
 dir
 ```
 
@@ -132,15 +131,14 @@ You do **not** need to install anything else by hand. `start.bat` installs whate
 
 ## 2. Download the project
 
-**With Git:** open PowerShell, go to the drive where the project should live, and clone the repository:
+**With Git:** open PowerShell in the folder where the project should live, and clone the repository. This creates the project folder `Zen-TMT`:
 
 ```
-D:
 git clone https://github.com/V-JasonEmmanuel/Zen-TMT.git
 cd Zen-TMT
 ```
 
-**As a ZIP file:** open https://github.com/V-JasonEmmanuel/Zen-TMT in the browser, click the green **Code** button, then **Download ZIP**. In your **Downloads** folder, right-click **Zen-TMT-main.zip**, choose **Extract All…**, pick a short location such as `D:\Zen-TMT` and click **Extract**.
+**As a ZIP file:** open https://github.com/V-JasonEmmanuel/Zen-TMT in the browser, click the green **Code** button, then **Download ZIP**. In your **Downloads** folder, right-click **Zen-TMT-main.zip**, choose **Extract All…**, pick a location and click **Extract**. The extracted folder is the project folder.
 
 ## 3. Run the one-click installer
 
