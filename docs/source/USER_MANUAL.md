@@ -190,12 +190,13 @@ The project folder contains these folders and files. Folders created on your com
 
 | File | What it is |
 |---|---|
-| `USER_MANUAL.md` | This manual. |
-| `PROJECT_DOCUMENTATION.md` | What the project is, how it is built and the technology used. |
-| `PIPELINE.md` | How each feature works, step by step. |
+| `User_Manual.pdf` | This manual. |
+| `Project_Documentation.pdf` | What the project is, how it is built and the technology used. |
+| `Pipeline_Explanation.pdf` | How each feature works, step by step. |
 | `Module_Architecture.pptx` | Slides explaining the parts (modules) of the app. |
 | `Pipeline.pptx` | Slides explaining the processing pipelines. |
 | `demo/Zensar_Content_Studio_Demo.mp4` | The demo video. |
+| `source/` | The text of the three PDFs, for editing. After a change, run `scripts/make_docs_pdfs.py` to rebuild the PDFs. |
 
 ## 3.3 `scripts/` — helper programs
 
@@ -210,6 +211,7 @@ The project folder contains these folders and files. Folders created on your com
 | `make_offline_bundle.bat` | Builds a folder of packages on a PC with internet, to copy to an offline machine. |
 | `record_demo.py` | Records the demo video by clicking through the app automatically. |
 | `edit_demo.py` | Cuts and speeds up the recording into the final demo video. |
+| `make_docs_pdfs.py` | Turns the documentation text in `docs/source/` into the PDF documents. |
 | `zensar_brand_research.py` | One-time tool that collected the Zensar brand facts (colours, logos) from official Zensar sources. |
 | `smoke_pipeline.py` | Developer check: runs reading, understanding and planning on one file. |
 | `smoke_render.py` | Developer check: makes slides and images from a test document. |

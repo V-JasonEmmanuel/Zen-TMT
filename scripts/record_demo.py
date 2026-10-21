@@ -227,7 +227,7 @@ def main() -> int:
         # 7. end
         d.scene("end")
         page.set_content(card_html("Zensar Content Studio", "Projects  -  Research Papers  -  Brand Documents<br>Start it with start.bat. Everything runs locally.",
-                                   logo, "See docs/USER_MANUAL.md to get started"))
+                                   logo, "See docs/User_Manual.pdf to get started"))
         page.wait_for_timeout(6000)
         d.scenes[-1]["end"] = d.now()
         video_path = page.video.path()

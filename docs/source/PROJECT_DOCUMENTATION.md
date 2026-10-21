@@ -100,7 +100,7 @@ Teams spend a lot of time turning documents into presentations, videos, publishe
 | `docs/` | This documentation, the slide decks and the demo video |
 | *created on first run:* `.venv/ data/ outputs/ projects/ models/ logs/ offline/` | Private Python, user data, results, AI models, logs, offline bundle |
 
-`docs/USER_MANUAL.md` explains every file in plain language.
+`docs/User_Manual.pdf` explains every file in plain language.
 
 ## 7. Installation and deployment
 
@@ -117,8 +117,8 @@ Teams spend a lot of time turning documents into presentations, videos, publishe
 
 ## 9. Related documents
 
-* `docs/USER_MANUAL.md`: installation step by step, how to use every screen, every file explained.
-* `docs/PIPELINE.md`: how each pipeline works, step by step.
+* `docs/User_Manual.pdf`: installation step by step, how to use every screen, every file explained.
+* `docs/Pipeline_Explanation.pdf`: how each pipeline works, step by step.
 * `docs/Module_Architecture.pptx`: slides on the modules.
 * `docs/Pipeline.pptx`: slides on the pipelines.
 * `docs/demo/Zensar_Content_Studio_Demo.mp4`: the demo video.
