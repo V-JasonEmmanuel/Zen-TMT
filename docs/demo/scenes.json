@@ -1,0 +1,77 @@
+{
+ "video": "page@69c1e9f5e1047544deb1414a8215f50e.webm",
+ "scenes": [
+  {
+   "name": "title",
+   "start": 0.0,
+   "fast": false,
+   "end": 6.55
+  },
+  {
+   "name": "dashboard",
+   "start": 6.55,
+   "fast": false,
+   "end": 18.21
+  },
+  {
+   "name": "project",
+   "start": 18.21,
+   "fast": false,
+   "end": 42.94
+  },
+  {
+   "name": "papers-upload",
+   "start": 42.94,
+   "fast": false,
+   "end": 54.0
+  },
+  {
+   "name": "papers-wait",
+   "start": 54.0,
+   "fast": true,
+   "end": 56.15
+  },
+  {
+   "name": "papers-result",
+   "start": 56.15,
+   "fast": false,
+   "end": 79.34
+  },
+  {
+   "name": "brand-upload",
+   "start": 79.34,
+   "fast": false,
+   "end": 101.28
+  },
+  {
+   "name": "brand-wait",
+   "start": 101.28,
+   "fast": true,
+   "end": 1043.57
+  },
+  {
+   "name": "brand-result",
+   "start": 1043.57,
+   "fast": false,
+   "end": 1055.83
+  },
+  {
+   "name": "brand-pages",
+   "start": 1055.83,
+   "fast": false,
+   "end": 1067.1
+  },
+  {
+   "name": "tour",
+   "start": 1067.1,
+   "fast": false,
+   "end": 1089.27
+  },
+  {
+   "name": "end",
+   "start": 1089.27,
+   "fast": false,
+   "end": 1095.3
+  }
+ ]
+}

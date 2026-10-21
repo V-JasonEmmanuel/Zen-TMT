@@ -47,3 +47,6 @@ tests/fixtures/my_voice.wav
 
 # Offline bundle cloned by start.bat when pypi.org is unreachable
 /offline/
+
+# raw demo recording (the edited MP4 is kept)
+/docs/demo/raw/
